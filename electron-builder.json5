@@ -1,0 +1,59 @@
+// @see - https://www.electron.build/configuration/configuration
+{
+  "$schema": "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
+  "appId": "com.videdown.app",
+  "asar": true,
+  "productName": "Videdown",
+  "icon": "ldstore.ico",
+  "directories": {
+    "output": "release/${version}"
+  },
+  "files": [
+    "dist",
+    "dist-electron",
+    "yt-dlp.exe",
+    "ffmpeg.exe",
+    "ldstore.ico"
+  ],
+  "extraResources": [
+    {
+      "from": "./yt-dlp.exe",
+      "to": "./yt-dlp.exe"
+    },
+    {
+      "from": "./ffmpeg.exe",
+      "to": "./ffmpeg.exe"
+    }
+  ],
+  "npmRebuild": false,
+  "mac": {
+    "target": [
+      "dmg"
+    ],
+    "artifactName": "${productName}-Mac-${version}-Installer.${ext}"
+  },
+  "win": {
+    "target": [
+      {
+        "target": "nsis",
+        "arch": [
+          "x64"
+        ]
+      }
+    ],
+    "icon": "ldstore.ico",
+    "artifactName": "${productName}-Windows-${version}-Setup.${ext}"
+  },
+  "nsis": {
+    "oneClick": false,
+    "perMachine": false,
+    "allowToChangeInstallationDirectory": true,
+    "deleteAppDataOnUninstall": false
+  },
+  "linux": {
+    "target": [
+      "AppImage"
+    ],
+    "artifactName": "${productName}-Linux-${version}.${ext}"
+  }
+}
