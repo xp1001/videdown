@@ -147,10 +147,22 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 import MaterialIcon from './icons/MaterialIcon.vue'
 
 const appVersion = ref('1.0.0')
+
+// 页面加载时获取应用版本号
+onMounted(async () => {
+  try {
+    const version = await window.electronAPI?.app?.getVersion?.()
+    if (version) {
+      appVersion.value = version
+    }
+  } catch (error) {
+    console.error('获取版本号失败:', error)
+  }
+})
 const isLatest = ref(true)
 const checkingUpdate = ref(false)
 const updateMessage = ref('')
