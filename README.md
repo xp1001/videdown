@@ -1,6 +1,5 @@
 <div align="center">
   <h1>Videdown</h1>
-
 </div>
 
 Videdown 是一款现代化的开源视频下载工具，让你可以从抖音 小红书 B站 YT Instagram等网站下载无水印高清视频。基于 Electron 构建，使用 yt-dlp 作为下载引擎，Videdown 提供了简洁直观的界面和强大的功能，满足你的所有下载需求。
