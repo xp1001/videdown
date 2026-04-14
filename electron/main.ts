@@ -257,19 +257,41 @@ function createMenu() {
 const GITHUB_OWNER = 'cshuangyy'
 const GITHUB_REPO = 'videdown'
 
+// 获取应用版本号
+ipcMain.handle('app:getVersion', () => {
+  return app.getVersion()
+})
+
 // 手动检查更新（使用 GitHub API）
 ipcMain.handle('app:checkForUpdates', async () => {
   try {
+    const currentVersion = app.getVersion()
+    
     // 使用 GitHub API 获取最新 Release
-    const response = await fetch(`https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases/latest`)
+    // 添加 User-Agent 和 Accept 头以避免 API 限制
+    const response = await fetch(`https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases/latest`, {
+      headers: {
+        'User-Agent': `Videdown/${currentVersion}`,
+        'Accept': 'application/vnd.github.v3+json',
+      },
+    })
     
     if (!response.ok) {
-      throw new Error('获取更新信息失败')
+      if (response.status === 403) {
+        throw new Error('API 请求频率受限，请稍后再试')
+      } else if (response.status === 404) {
+        throw new Error('未找到发布版本')
+      } else {
+        throw new Error(`服务器返回错误: ${response.status}`)
+      }
     }
     
     const release = await response.json()
     const latestVersion = release.tag_name?.replace(/^v/, '') || ''
-    const currentVersion = app.getVersion()
+    
+    if (!latestVersion) {
+      throw new Error('无法解析版本号')
+    }
     
     // 版本号对比
     const hasUpdate = compareVersion(latestVersion, currentVersion) > 0
@@ -283,9 +305,10 @@ ipcMain.handle('app:checkForUpdates', async () => {
       downloadUrl: release.html_url || `https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/releases`,
     }
   } catch (error) {
+    console.error('检查更新失败:', error)
     return {
       hasUpdate: false,
-      error: error instanceof Error ? error.message : '检查更新失败',
+      error: error instanceof Error ? error.message : '检查更新失败，请检查网络连接',
     }
   }
 })
