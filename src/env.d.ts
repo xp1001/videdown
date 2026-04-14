@@ -11,7 +11,9 @@ interface Window {
       selectFolder: () => Promise<string | null>
       selectFile: () => Promise<string | null>
     }
+    // 应用信息
     app: {
+      getVersion: () => Promise<string>
       getDefaultDownloadDir: () => Promise<string>
       fetchImage: (url: string, referer?: string) => Promise<string>
     }
