@@ -1,5 +1,10 @@
 <div align="center">
-  <h3>Videdown</h3>
+  <h1>Videdown</h1>
+
+</div>
+
+Videdown 是一款现代化的开源视频下载工具，让你可以从抖音 小红书 B站 YT Instagram等网站下载无水印高清视频。基于 Electron 构建，使用 yt-dlp 作为下载引擎，Videdown 提供了简洁直观的界面和强大的功能，满足你的所有下载需求。
+
   <p>
     <a href="https://github.com/cshuangyy/videdown/stargazers"><img src="src/assets/screen.png" alt="Videdown Screenshot" width="80%"></a>
     <a href="https://github.com/cshuangyy/videdown/releases"><img src="https://img.shields.io/github/downloads/cshuangyy/videdown/total?color=369eff&labelColor=black&logo=github&label=Downloads" /></a>
@@ -7,9 +12,6 @@
     <br />
     <br />
   </p>
-</div>
-
-Videdown 是一款现代化的开源视频下载工具，让你可以从抖音 小红书 B站 YT Instagram等网站下载无水印高清视频。基于 Electron 构建，使用 yt-dlp 作为下载引擎，Videdown 提供了简洁直观的界面和强大的功能，满足你的所有下载需求。
 
 ## 👋🏻 开始使用
 
