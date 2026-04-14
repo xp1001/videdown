@@ -42,7 +42,7 @@
       }
     ],
     "icon": "ldstore.ico",
-    "artifactName": "${productName}-Windows-${version}-Setup.${ext}"
+    "artifactName": "${productName}.Setup.${version}.${ext}"
   },
   "nsis": {
     "oneClick": false,
