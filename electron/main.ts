@@ -386,16 +386,24 @@ ipcMain.handle('shell:openExternal', async (_, url: string) => {
 
 // 使用无头浏览器解析抖音视频
 async function parseDouyinWithPuppeteer(url: string): Promise<any> {
-  // 查找 Chrome 路径
-  const chromePaths = [
+  // 获取 Chromium 路径：优先使用系统 Chrome/Edge，否则使用 Electron 内置的 Chromium
+  const browserPaths = [
+    // Chrome
     'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
     'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
     path.join(os.homedir(), 'AppData', 'Local', 'Google', 'Chrome', 'Application', 'chrome.exe'),
+    // Edge
+    'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
+    'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',
+    path.join(os.homedir(), 'AppData', 'Local', 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
   ]
 
-  let chromePath = chromePaths.find(p => fs.existsSync(p))
+  let chromePath = browserPaths.find(p => fs.existsSync(p))
+  
+  // 如果没有找到系统浏览器，使用 Electron 内置的 Chromium
   if (!chromePath) {
-    throw new Error('未找到 Chrome 浏览器，请安装 Chrome')
+    // Electron 的可执行文件就是 Chromium
+    chromePath = process.execPath
   }
 
   const browser = await puppeteer.launch({
@@ -666,16 +674,24 @@ async function parseDouyinWithPuppeteer(url: string): Promise<any> {
 
 // 使用无头浏览器解析快手视频
 async function parseKuaishouWithPuppeteer(url: string): Promise<any> {
-  // 查找 Chrome 路径
-  const chromePaths = [
+  // 获取 Chromium 路径：优先使用系统 Chrome/Edge，否则使用 Electron 内置的 Chromium
+  const browserPaths = [
+    // Chrome
     'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
     'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
     path.join(os.homedir(), 'AppData', 'Local', 'Google', 'Chrome', 'Application', 'chrome.exe'),
+    // Edge
+    'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
+    'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',
+    path.join(os.homedir(), 'AppData', 'Local', 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
   ]
 
-  let chromePath = chromePaths.find(p => fs.existsSync(p))
+  let chromePath = browserPaths.find(p => fs.existsSync(p))
+  
+  // 如果没有找到系统浏览器，使用 Electron 内置的 Chromium
   if (!chromePath) {
-    throw new Error('未找到 Chrome 浏览器，请安装 Chrome')
+    // Electron 的可执行文件就是 Chromium
+    chromePath = process.execPath
   }
 
   const browser = await puppeteer.launch({
