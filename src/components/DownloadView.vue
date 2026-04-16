@@ -86,7 +86,7 @@
           </div>
           
           <!-- YouTube Cookie Hint -->
-          <div v-if="isYouTubeUrl" class="flex flex-col gap-2 p-4 bg-tertiary-container/30 rounded-lg border border-tertiary/20">
+          <div v-if="isYouTubeUrl && !hasParsed" class="flex flex-col gap-2 p-4 bg-tertiary-container/30 rounded-lg border border-tertiary/20">
             <div class="flex items-start gap-3">
               <MaterialIcon name="info" :size="20" class="text-tertiary flex-shrink-0 mt-0.5" />
               <div class="flex-1">
@@ -94,7 +94,7 @@
                 <p class="text-xs text-on-surface-variant mt-1 leading-relaxed">
                   由于 YouTube 的限制，需安装 Chrome 插件
                   <span class="font-medium text-tertiary">Get cookies.txt LOCALLY</span>
-                  导出 cookies 文件命名为 cookies.txt，然后在设置中导入。
+                  导出 cookies 文件命名为 cookies.txt，然后在设置中导入并且需要经常更新cookies.txt。
                 </p>
                 <button 
                   @click="openCookieHelp"
@@ -354,6 +354,7 @@ import type { VideoInfo, VideoFormat, DownloadTask } from '../types'
 const url = ref('')
 
 // 检测是否为 YouTube 链接
+const hasParsed = ref(false)
 const isYouTubeUrl = computed(() => {
   const urlStr = url.value.trim().toLowerCase()
   return urlStr.includes('youtube.com') || urlStr.includes('youtu.be')
@@ -534,6 +535,9 @@ function extractUrl(text: string): string {
 async function parseVideo() {
   if (!url.value || isParsing.value) return
   
+  // 标记已点击解析按钮，隐藏 YouTube 提示
+  hasParsed.value = true
+  
   // 提取有效链接
   const extractedUrl = extractUrl(url.value)
   if (extractedUrl !== url.value) {
@@ -642,6 +646,7 @@ async function startDownload() {
   url.value = ''
   videoInfo.value = null
   selectedFormat.value = null
+  hasParsed.value = false
 }
 
 async function processDownload(task: DownloadTask) {
