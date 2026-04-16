@@ -1174,16 +1174,28 @@ ipcMain.handle('ytdlp:parse', async (_event, ...args) => {
             const isVideoFormat = f.height && f.height > 0
             return hasVideo && isVideoFormat
           })
-          ?.map((f: any) => ({
-            formatId: f.format_id,
-            quality: f.quality_label || f.resolution || f.format_note || `${f.height}p`,
-            ext: f.ext || f.video_ext || 'mp4',
-            filesize: f.filesize || f.filesize_approx,
-            width: f.width,
-            height: f.height,
-            fps: f.fps,
-            hasAudio: f.acodec && f.acodec !== 'none',
-          }))
+          ?.map((f: any) => {
+            // 获取文件大小：优先使用 filesize，其次是 filesize_approx
+            // 对于 YouTube，还可以尝试通过码率和时长估算
+            let filesize = f.filesize || f.filesize_approx || 0
+            
+            // 如果没有文件大小但有码率和视频时长，进行估算
+            if (!filesize && f.tbr && info.duration) {
+              // tbr (kbps) * duration (seconds) / 8 = bytes
+              filesize = Math.floor((f.tbr * 1000 * info.duration) / 8)
+            }
+            
+            return {
+              formatId: f.format_id,
+              quality: f.quality_label || f.resolution || f.format_note || `${f.height}p`,
+              ext: f.ext || f.video_ext || 'mp4',
+              filesize: filesize,
+              width: f.width,
+              height: f.height,
+              fps: f.fps,
+              hasAudio: f.acodec && f.acodec !== 'none',
+            }
+          })
           ?.filter((f: any) => f.quality && f.quality !== 'undefinedp')
           // 添加码率信息用于排序和去重
           ?.map((f: any) => ({
