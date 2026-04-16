@@ -681,9 +681,11 @@ async function processDownload(task: DownloadTask) {
   })
   
   try {
-    // 检查是否有直接下载链接（抖音）
+    // 检查是否有直接下载链接（抖音/快手等通过 Puppeteer 解析的平台）
     const directUrl = task.selectedFormat.url
     const isDouyin = task.url.includes('douyin.com') || task.url.includes('v.douyin.com')
+    const isKuaishou = task.url.includes('kuaishou.com') || task.url.includes('v.kuaishou.com')
+    const useDirectDownload = isDouyin || isKuaishou
     
     // 获取 cookies 文件路径
     const settings = JSON.parse(localStorage.getItem('settings') || '{}')
@@ -694,8 +696,8 @@ async function processDownload(task: DownloadTask) {
       formatId: task.selectedFormat.formatId,
       outputDir: task.outputDir,
       taskId: task.id,
-      directUrl: isDouyin ? directUrl : undefined,
-      filename: isDouyin ? `${sanitizeFilename(task.videoInfo.title).slice(0, 50)}_${task.selectedFormat.quality}.mp4` : undefined,
+      directUrl: useDirectDownload ? directUrl : undefined,
+      filename: useDirectDownload ? `${sanitizeFilename(task.videoInfo.title).slice(0, 50)}_${task.selectedFormat.quality}.mp4` : undefined,
       cookiesFile: cookiesFile,
     })
 
