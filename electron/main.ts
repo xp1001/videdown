@@ -132,6 +132,11 @@ function isDouyinUrl(url: string): boolean {
   return url.includes('douyin.com') || url.includes('v.douyin.com')
 }
 
+// 检查是否是快手链接
+function isKuaishouUrl(url: string): boolean {
+  return url.includes('kuaishou.com') || url.includes('v.kuaishou.com')
+}
+
 // 检查是否是B站链接（保留供将来使用）
 // @ts-ignore
 function isBilibiliUrl(url: string): boolean {
@@ -419,6 +424,7 @@ async function parseDouyinWithPuppeteer(url: string): Promise<any> {
     let videoInfo: any = null
     let videoData: any = null
     let renderData: any = null
+    let finalUrl = url  // 初始值为传入的 URL
 
     // 拦截网络请求
     await page.setRequestInterception(true)
@@ -442,11 +448,40 @@ async function parseDouyinWithPuppeteer(url: string): Promise<any> {
       }
     })
 
-    // 访问页面
+    // 访问页面（短链接会重定向，需要等待跳转完成）
     await page.goto(url, { waitUntil: 'networkidle2', timeout: 60000 })
 
-    // 等待页面加载并提取信息
-    await new Promise(resolve => setTimeout(resolve, 5000))
+    // 等待页面加载并提取信息（短链接需要更长时间）
+    await new Promise(resolve => setTimeout(resolve, 8000))
+
+    // 获取最终 URL（处理短链接重定向）
+    finalUrl = page.url()
+    console.log('快手页面加载完成，最终URL:', finalUrl)
+
+    // 滚动页面触发视频加载
+    console.log('滚动页面触发视频加载...')
+    await page.evaluate(async () => {
+      // 滚动到视频区域
+      const videoContainer = document.querySelector('.video-container') ||
+                             document.querySelector('[data-e2e="video-container"]') ||
+                             document.querySelector('.short-video') ||
+                             document.body
+      if (videoContainer) {
+        videoContainer.scrollIntoView({ behavior: 'instant', block: 'center' })
+      }
+      // 等待视频加载
+      await new Promise(r => setTimeout(r, 3000))
+      
+      // 尝试点击播放按钮触发视频加载
+      const playBtn = document.querySelector('.play-button') ||
+                      document.querySelector('[data-e2e="play-button"]') ||
+                      document.querySelector('.video-play') ||
+                      document.querySelector('.player-play')
+      if (playBtn) {
+        ;(playBtn as HTMLElement).click()
+        await new Promise(r => setTimeout(r, 2000))
+      }
+    })
 
     // 尝试从页面 SSR 数据中提取
     renderData = await page.evaluate(() => {
@@ -629,6 +664,426 @@ async function parseDouyinWithPuppeteer(url: string): Promise<any> {
   }
 }
 
+// 使用无头浏览器解析快手视频
+async function parseKuaishouWithPuppeteer(url: string): Promise<any> {
+  // 查找 Chrome 路径
+  const chromePaths = [
+    'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+    'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+    path.join(os.homedir(), 'AppData', 'Local', 'Google', 'Chrome', 'Application', 'chrome.exe'),
+  ]
+
+  let chromePath = chromePaths.find(p => fs.existsSync(p))
+  if (!chromePath) {
+    throw new Error('未找到 Chrome 浏览器，请安装 Chrome')
+  }
+
+  const browser = await puppeteer.launch({
+    headless: true,
+    executablePath: chromePath,
+    args: [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-accelerated-2d-canvas',
+      '--disable-gpu',
+      '--window-size=1920,1080'
+    ]
+  })
+
+  try {
+    const page = await browser.newPage()
+
+    // 设置 User-Agent
+    await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
+
+    // 设置视口
+    await page.setViewport({ width: 1920, height: 1080 })
+
+    // 存储拦截到的视频信息
+    let videoInfo: any = null
+    let videoData: any = null
+    let renderData: any = null
+    let finalUrl = url  // 初始值为传入的 URL
+
+    // 拦截网络请求
+    await page.setRequestInterception(true)
+    page.on('request', (request) => {
+      request.continue()
+    })
+
+    page.on('response', async (response) => {
+      const resUrl = response.url()
+
+      // 拦截快手视频详情 API
+      if (resUrl.includes('/graphql') || resUrl.includes('/rest/wd/photo/info') || resUrl.includes('/rest/wd/photo/detail')) {
+        try {
+          const data = await response.json()
+          if (data?.data?.visionVideoDetail || data?.data?.videoDetail || data?.data?.photo) {
+            videoData = data
+          }
+        } catch (e) {
+          // 忽略非 JSON 响应
+        }
+      }
+    })
+
+    // 访问页面
+    await page.goto(url, { waitUntil: 'networkidle2', timeout: 60000 })
+
+    // 等待页面加载并提取信息
+    await new Promise(resolve => setTimeout(resolve, 5000))
+
+    // 尝试从页面 SSR 数据中提取
+    renderData = await page.evaluate(() => {
+      // 尝试从 window.__INITIAL_STATE__ 获取
+      const initialState = (window as any).__INITIAL_STATE__
+      if (initialState) {
+        return { source: '__INITIAL_STATE__', data: initialState }
+      }
+
+      // 尝试从 window.__APOLLO_STATE__ 获取
+      const apolloState = (window as any).__APOLLO_STATE__
+      if (apolloState) {
+        return { source: '__APOLLO_STATE__', data: apolloState }
+      }
+
+      // 尝试从 window.__DATA__ 获取（快手常用）
+      const windowData = (window as any).__DATA__
+      if (windowData) {
+        return { source: '__DATA__', data: windowData }
+      }
+
+      // 尝试从 window.KS_DATA 获取
+      const ksData = (window as any).KS_DATA
+      if (ksData) {
+        return { source: 'KS_DATA', data: ksData }
+      }
+
+      // 尝试从 script 标签获取
+      const scripts = document.querySelectorAll('script')
+      for (const script of scripts) {
+        const text = script.textContent || ''
+        // 匹配 __INITIAL_STATE__
+        let match = text.match(/window\.__INITIAL_STATE__\s*=\s*({[\s\S]+?});?\s*$/m)
+        if (match) {
+          try {
+            return { source: 'script_INITIAL', data: JSON.parse(match[1]) }
+          } catch (e) {
+            // ignore
+          }
+        }
+        // 匹配 __APOLLO_STATE__
+        match = text.match(/window\.__APOLLO_STATE__\s*=\s*({[\s\S]+?});?\s*$/m)
+        if (match) {
+          try {
+            return { source: 'script_APOLLO', data: JSON.parse(match[1]) }
+          } catch (e) {
+            // ignore
+          }
+        }
+        // 匹配 __DATA__
+        match = text.match(/window\.__DATA__\s*=\s*({[\s\S]+?});?\s*$/m)
+        if (match) {
+          try {
+            return { source: 'script_DATA', data: JSON.parse(match[1]) }
+          } catch (e) {
+            // ignore
+          }
+        }
+      }
+      return null
+    })
+    
+
+
+    // 优先使用 API 数据，其次是 SSR 数据
+    let detailData = videoData?.data?.visionVideoDetail?.photo ||
+                     videoData?.data?.videoDetail?.photo ||
+                     videoData?.data?.photo
+
+    // 从 APOLLO_STATE 中提取视频数据
+    if (!detailData && renderData?.data) {
+      const apolloData = renderData.data
+      // 尝试从 defaultClient 中提取
+      if (apolloData.defaultClient) {
+        const client = apolloData.defaultClient
+        // 查找 VisionVideoDetailPhoto 类型的对象
+        for (const key of Object.keys(client)) {
+          const item = client[key]
+          if (key.startsWith('VisionVideoDetailPhoto:') || item?.__typename === 'VisionVideoDetailPhoto') {
+            detailData = item
+            break
+          }
+          // 兼容旧的查找方式
+          if (item?.__typename === 'VisionVideoDetail') {
+            // photo 可能是引用，需要从 client 中查找真正的数据
+            const photoRef = item.photo
+            // photoRef.id 可能已经是完整格式 "VisionVideoDetailPhoto:xxx"
+            const photoKey = photoRef?.id?.startsWith('VisionVideoDetailPhoto:') 
+              ? photoRef.id 
+              : `VisionVideoDetailPhoto:${photoRef?.id}`
+            if (photoRef?.id && client[photoKey]) {
+              detailData = client[photoKey]
+            } else {
+              detailData = item.photo || item
+            }
+            break
+          }
+          if (item?.photo) {
+            detailData = item.photo
+            break
+          }
+        }
+      }
+      // 尝试从 clients 中提取
+      if (!detailData && apolloData.clients) {
+        for (const clientKey of Object.keys(apolloData.clients)) {
+          const client = apolloData.clients[clientKey]
+          for (const key of Object.keys(client)) {
+            const item = client[key]
+            if (key.startsWith('VisionVideoDetailPhoto:') || item?.__typename === 'VisionVideoDetailPhoto') {
+              detailData = item
+              break
+            }
+            if (item?.__typename === 'VisionVideoDetail' || item?.photo) {
+              detailData = item.photo || item
+              break
+            }
+          }
+          if (detailData) break
+        }
+      }
+    }
+
+    if (detailData) {
+      const photo = detailData
+
+      // 构建格式列表
+      const formats: any[] = []
+
+      // 从 APOLLO client 中获取真正的 manifest 数据（manifest 可能是引用）
+      let manifestData = photo.manifest
+      if (photo.manifest?.id && renderData?.data?.defaultClient?.[photo.manifest.id]) {
+        manifestData = renderData.data.defaultClient[photo.manifest.id]
+      }
+
+      // adaptationSet 可能是引用，需要获取真正的数据
+      let adaptationSet = manifestData?.adaptationSet
+      if (Array.isArray(adaptationSet) && adaptationSet[0]?.id) {
+        const adaptationSetId = adaptationSet[0].id
+        if (renderData?.data?.defaultClient?.[adaptationSetId]) {
+          adaptationSet = renderData.data.defaultClient[adaptationSetId]
+        }
+      }
+
+      // 处理不同清晰度的视频 (manifest 格式)
+      if (adaptationSet?.representation) {
+        let representations = adaptationSet.representation
+        // representation 可能是引用数组，需要获取真正的数据
+        if (Array.isArray(representations) && representations[0]?.type === 'id') {
+          representations = representations.map((ref: any) => {
+            if (ref?.id && renderData?.data?.defaultClient?.[ref.id]) {
+              return renderData.data.defaultClient[ref.id]
+            }
+            return ref
+          })
+        }
+        representations.forEach((rep: any, index: number) => {
+          if (rep.url) {
+            // 估算文件大小：使用平均码率 * 时长 / 8
+            // 如果 avgBitrate 是 bps，duration 是毫秒
+            let estimatedSize = 0
+            if (rep.avgBitrate && photo.duration) {
+              // avgBitrate (bps) * duration (ms) / 1000 (to seconds) / 8 (to bytes)
+              estimatedSize = Math.floor((rep.avgBitrate * photo.duration) / 1000 / 8)
+            }
+            formats.push({
+              formatId: `ks_${index}`,
+              quality: `${rep.height}p`,
+              ext: 'mp4',
+              filesize: rep.size || rep.fileSize || estimatedSize || 0,
+              width: rep.width || 0,
+              height: rep.height || 0,
+              fps: rep.frameRate || 30,
+              hasAudio: true,
+              url: rep.url
+            })
+          }
+        })
+      }
+
+      // 处理 mvUrls (快手常用格式，包含多个清晰度)
+      if (photo.mvUrls && Array.isArray(photo.mvUrls)) {
+        photo.mvUrls.forEach((mv: any, index: number) => {
+          if (mv.url) {
+            formats.push({
+              formatId: `ks_mv_${index}`,
+              quality: mv.quality || '默认',
+              ext: 'mp4',
+              filesize: mv.size || 0,
+              width: mv.width || 0,
+              height: mv.height || 0,
+              fps: 30,
+              hasAudio: true,
+              url: mv.url
+            })
+          }
+        })
+      }
+
+      // 处理 mainMvUrls
+      if (formats.length === 0 && photo.mainMvUrls?.[0]?.url) {
+        formats.push({
+          formatId: 'default',
+          quality: '默认',
+          ext: 'mp4',
+          filesize: photo.mainMvUrls[0].size || photo.size || 0,
+          width: photo.mainMvUrls[0].width || photo.width || 0,
+          height: photo.mainMvUrls[0].height || photo.height || 0,
+          fps: 30,
+          hasAudio: true,
+          url: photo.mainMvUrls[0].url
+        })
+      }
+
+      // 备用：使用 photoUrl
+      if (formats.length === 0 && photo.photoUrl) {
+        formats.push({
+          formatId: 'default',
+          quality: '默认',
+          ext: 'mp4',
+          filesize: photo.size || 0,
+          width: photo.width || 0,
+          height: photo.height || 0,
+          fps: 30,
+          hasAudio: true,
+          url: photo.photoUrl
+        })
+      }
+
+      // 备用：使用任何包含 url 的字段
+      if (formats.length === 0 && photo.url) {
+        formats.push({
+          formatId: 'default',
+          quality: '默认',
+          ext: 'mp4',
+          filesize: photo.size || 0,
+          width: photo.width || 0,
+          height: photo.height || 0,
+          fps: 30,
+          hasAudio: true,
+          url: photo.url
+        })
+      }
+
+      // 按高度降序排序
+      formats.sort((a, b) => (b.height || 0) - (a.height || 0))
+
+      videoInfo = {
+        id: photo.photoId || photo.id || Date.now().toString(),
+        title: photo.caption || '快手视频',
+        description: photo.caption,
+        thumbnail: photo.coverUrls?.[0]?.url || photo.coverUrl || '',
+        duration: photo.duration ? Math.floor(photo.duration / 1000) : 0,
+        uploader: photo.userName || photo.authorName || '',
+        webpageUrl: finalUrl,
+        formats: formats
+      }
+    } else {
+      // 如果 API 失败，尝试从页面 DOM 提取
+      console.log('API数据获取失败，尝试从DOM提取...')
+      
+      // 先检查页面是否有 video 元素
+      const hasVideo = await page.evaluate(() => {
+        const videoEl = document.querySelector('video')
+        return {
+          hasVideo: !!videoEl,
+          videoSrc: videoEl?.src || '',
+          sourceSrc: videoEl?.querySelector('source')?.src || '',
+          dataSrc: (videoEl as any)?.dataset?.src || '',
+          allVideos: Array.from(document.querySelectorAll('video')).map(v => ({
+            src: v.src,
+            dataSrc: (v as any).dataset?.src,
+            currentSrc: v.currentSrc
+          }))
+        }
+      })
+      console.log('页面视频元素检查:', hasVideo)
+      
+      videoInfo = await page.evaluate(() => {
+        const videoEl = document.querySelector('video') as HTMLVideoElement
+        const titleEl = document.querySelector('.video-title') ||
+                        document.querySelector('[data-e2e="video-title"]') ||
+                        document.querySelector('.caption') ||
+                        document.querySelector('.video-info-title') ||
+                        document.querySelector('h1') ||
+                        document.querySelector('.title')
+        const authorEl = document.querySelector('.user-name') ||
+                         document.querySelector('[data-e2e="user-name"]') ||
+                         document.querySelector('.author-name') ||
+                         document.querySelector('.video-info-user-name') ||
+                         document.querySelector('.author')
+
+        // 尝试获取视频 src（多种方式）
+        let videoSrc: string | undefined = videoEl?.src
+        if (!videoSrc) {
+          const sourceEl = videoEl?.querySelector('source')
+          videoSrc = sourceEl?.src
+        }
+        if (!videoSrc) {
+          videoSrc = (videoEl as any)?.dataset?.src
+        }
+        if (!videoSrc) {
+          videoSrc = videoEl?.currentSrc
+        }
+        
+        // 尝试从所有 video 元素中找
+        if (!videoSrc) {
+          const allVideos = document.querySelectorAll('video')
+          for (const v of allVideos) {
+            if (v.src || (v as any).dataset?.src) {
+              videoSrc = v.src || (v as any).dataset?.src
+              break
+            }
+          }
+        }
+
+        return {
+          id: Date.now().toString(),
+          title: titleEl?.textContent?.trim() || '快手视频',
+          description: titleEl?.textContent?.trim() || '',
+          thumbnail: '',
+          duration: videoEl?.duration || 0,
+          uploader: authorEl?.textContent?.trim() || '',
+          webpageUrl: window.location.href,
+          formats: videoSrc ? [{
+            formatId: 'default',
+            quality: '默认',
+            ext: 'mp4',
+            filesize: 0,
+            width: 0,
+            height: 0,
+            fps: 30,
+            hasAudio: true,
+            url: videoSrc
+          }] : []
+        }
+      })
+      
+      console.log('DOM提取结果:', videoInfo)
+    }
+
+    if (!videoInfo || videoInfo.formats.length === 0) {
+      throw new Error('无法获取视频信息，请检查链接是否有效')
+    }
+
+    return videoInfo
+  } finally {
+    await browser.close()
+  }
+}
+
 // 解析视频信息
 ipcMain.handle('ytdlp:parse', async (_event, ...args) => {
   const url = args[0] as string
@@ -639,6 +1094,19 @@ ipcMain.handle('ytdlp:parse', async (_event, ...args) => {
       return await parseDouyinWithPuppeteer(url)
     } catch (e: any) {
       // 如果 Puppeteer 失败，回退到 yt-dlp
+    }
+  }
+  // 如果是快手链接，使用 Puppeteer 解析
+  if (isKuaishouUrl(url)) {
+    try {
+      console.log('检测到快手链接，使用 Puppeteer 解析:', url)
+      const result = await parseKuaishouWithPuppeteer(url)
+      console.log('快手解析成功:', result.id)
+      return result
+    } catch (e: any) {
+      console.error('快手 Puppeteer 解析失败:', e.message)
+      // 如果 Puppeteer 失败，抛出错误而不是回退到 yt-dlp
+      throw new Error(`快手视频解析失败: ${e.message}`)
     }
   }
   
