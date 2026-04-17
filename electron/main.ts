@@ -590,7 +590,6 @@ async function parseDouyinWithPuppeteer(url: string): Promise<any> {
     let videoInfo: any = null
     let videoData: any = null
     let renderData: any = null
-    let finalUrl = url  // 初始值为传入的 URL
 
     // 拦截网络请求
     await page.setRequestInterception(true)
@@ -619,9 +618,6 @@ async function parseDouyinWithPuppeteer(url: string): Promise<any> {
 
     // 等待页面加载
     await new Promise(resolve => setTimeout(resolve, 3000))
-
-    // 获取最终 URL（处理短链接重定向）
-    finalUrl = page.url()
 
     // 滚动页面触发视频加载
     await page.evaluate(async () => {
@@ -896,15 +892,9 @@ async function parseKuaishouWithAPI(url: string): Promise<any> {
         videoId = newVideoMatch[1]
       }
       
-      // 提取 authorId 和 shareToken
-      const authorIdMatch = redirectedUrl.match(/authorId=([^&#]+)/)
-      const authorId = authorIdMatch ? authorIdMatch[1] : null
-      const shareTokenMatch = redirectedUrl.match(/shareToken=([^&#]+)/)
-      const shareToken = shareTokenMatch ? shareTokenMatch[1] : null
-      
       // 如果获取到 videoId，直接调用 API
       if (videoId) {
-        return await queryKuaishouVideoById(videoId, authorId)
+        return await queryKuaishouVideoById(videoId)
       }
     } catch (e) {
 
@@ -913,16 +903,14 @@ async function parseKuaishouWithAPI(url: string): Promise<any> {
   
   // 如果有 videoId，直接调用 API
   if (videoId) {
-    const authorIdMatch = url.match(/authorId=([^&#]+)/)
-    const authorId = authorIdMatch ? authorIdMatch[1] : null
-    return await queryKuaishouVideoById(videoId, authorId)
+    return await queryKuaishouVideoById(videoId)
   }
   
   throw new Error('无法从 URL 提取视频 ID')
 }
 
 // 通过视频 ID 查询快手 GraphQL API
-async function queryKuaishouVideoById(videoId: string, authorId: string | null): Promise<any> {
+async function queryKuaishouVideoById(videoId: string): Promise<any> {
 
   
   const query = {
@@ -1175,12 +1163,6 @@ async function parseKuaishouWithPuppeteer(url: string): Promise<any> {
     // 从 URL 中提取视频 ID 并手动请求视频详情
     const videoIdMatch = finalUrl.match(/\/short-video\/([^?&#]+)/) || url.match(/\/short-video\/([^?&#]+)/)
     const videoId = videoIdMatch ? videoIdMatch[1] : null
-    
-    // 尝试从多个参数中提取视频 ID
-    const shareTokenMatch = finalUrl.match(/shareToken=([^&#]+)/) || url.match(/shareToken=([^&#]+)/)
-    const shareToken = shareTokenMatch ? shareTokenMatch[1] : null
-    
-
     
     if (videoId) {
       // 手动发送 GraphQL 请求获取视频详情
@@ -1751,37 +1733,6 @@ async function parseKuaishouWithPuppeteer(url: string): Promise<any> {
       // 再等待一下让视频加载
       await new Promise(resolve => setTimeout(resolve, 3000))
       
-      // 先检查页面是否有 video 元素
-      const hasVideo = await page.evaluate(() => {
-        const videoEl = document.querySelector('video')
-        // 尝试所有可能的视频相关属性
-        const possibleSources = [
-          videoEl?.src,
-          videoEl?.currentSrc,
-          videoEl?.querySelector('source')?.src,
-          (videoEl as any)?.dataset?.src,
-          (videoEl as any)?.dataset?.videoSrc,
-          (videoEl as any)?.dataset?.url,
-          (videoEl as any)?.props?.src,
-          (videoEl as any)?.props?.url,
-        ]
-        return {
-          hasVideo: !!videoEl,
-          videoSrc: videoEl?.src || '',
-          currentSrc: videoEl?.currentSrc || '',
-          sourceSrc: videoEl?.querySelector('source')?.src || '',
-          dataSrc: (videoEl as any)?.dataset?.src || '',
-          allSources: possibleSources.filter(s => s),
-          allVideos: Array.from(document.querySelectorAll('video')).map(v => ({
-            src: v.src,
-            currentSrc: v.currentSrc,
-            dataSrc: (v as any).dataset?.src,
-            duration: v.duration
-          }))
-        }
-      })
-
-      
       videoInfo = await page.evaluate(() => {
         // 尝试多种选择器
         const titleEl = document.querySelector('.video-title') ||
@@ -1812,11 +1763,14 @@ async function parseKuaishouWithPuppeteer(url: string): Promise<any> {
         
         // 尝试从 img 标签的 src 获取缩略图
         let thumbnail = ''
-        const imgEl = document.querySelector('[class*="cover"] img') || 
-                    document.querySelector('[class*="thumbnail"] img') ||
-                    document.querySelector('video')?.poster
+        const imgEl = document.querySelector('[class*="cover"] img') as HTMLImageElement || 
+                    document.querySelector('[class*="thumbnail"] img') as HTMLImageElement ||
+                    null
+        const videoPoster = document.querySelector('video')?.poster
         if (imgEl) {
-          thumbnail = (imgEl as HTMLImageElement).src || imgEl.getAttribute('data-src') || ''
+          thumbnail = imgEl.src || imgEl.getAttribute('data-src') || ''
+        } else if (videoPoster) {
+          thumbnail = videoPoster
         }
         
         return {
