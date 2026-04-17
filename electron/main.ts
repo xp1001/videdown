@@ -384,6 +384,164 @@ ipcMain.handle('shell:openExternal', async (_, url: string) => {
   await shell.openExternal(url)
 })
 
+// 使用直接 API 调用快速解析抖音视频
+async function parseDouyinWithAPI(url: string): Promise<any> {
+  // 从 URL 中提取视频 ID
+  let videoId: string | null = null
+  
+  // 尝试多种 URL 格式
+  // 1. https://www.douyin.com/video/7082345237837899051
+  const videoMatch = url.match(/\/video\/(\d+)/)
+  if (videoMatch) {
+    videoId = videoMatch[1]
+  }
+  
+  // 2. 短链接格式 https://v.douyin.com/xxxxx
+  if (!videoId) {
+    try {
+      const response = await fetch(url, {
+        redirect: 'follow',
+        method: 'GET',
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        }
+      })
+      const redirectedUrl = response.url
+      const newVideoMatch = redirectedUrl.match(/\/video\/(\d+)/)
+      if (newVideoMatch) {
+        videoId = newVideoMatch[1]
+      }
+    } catch (e) {
+    }
+  }
+  
+  if (!videoId) {
+    throw new Error('无法从 URL 提取视频 ID')
+  }
+  
+  // 调用抖音 API - 增加更多参数提高成功率
+  const apiUrl = `https://www.douyin.com/aweme/v1/web/aweme/detail/?aweme_id=${videoId}&aid=6383&channel=channel_pc_web&detail_list=1`
+  
+  const response = await fetch(apiUrl, {
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      'Referer': 'https://www.douyin.com/',
+      'Accept': 'application/json',
+      'Accept-Language': 'zh-CN,zh;q=0.9',
+      'Accept-Encoding': 'gzip, deflate, br',
+      'Connection': 'keep-alive',
+    }
+  })
+  
+  const data = await response.json()
+  
+  if (!data.aweme_detail) {
+    throw new Error('API 解析失败')
+  }
+  
+  const detail = data.aweme_detail
+  const video = detail.video
+  
+  // 用于去重，只保留每个清晰度的最佳版本
+  const qualityMap = new Map<string, any>()
+  
+  // 处理 bit_rate 中的各种清晰度
+  if (video.bit_rate && video.bit_rate.length > 0) {
+    video.bit_rate.forEach((br: any, index: number) => {
+      if (br.play_addr?.url_list[0]) {
+        let quality = '默认'
+        let qualityKey = 'default'
+        let height = br.height || 0
+        
+        if (br.gear_name) {
+          const match = br.gear_name.match(/(\d+)/)
+          if (match) {
+            quality = `${match[1]}p`
+            qualityKey = match[1]
+            height = parseInt(match[1])
+          } else {
+            quality = br.gear_name
+            qualityKey = br.gear_name
+          }
+        } else if (br.height) {
+          quality = `${br.height}p`
+          qualityKey = String(br.height)
+        }
+        
+        let filesize = br.data_size || 0
+        if (!filesize && video.duration) {
+          const durationSec = video.duration / 1000
+          let estimatedBitrate = 2000000
+          if (height >= 1080) estimatedBitrate = 5000000
+          else if (height >= 720) estimatedBitrate = 2500000
+          else if (height >= 480) estimatedBitrate = 1500000
+          else if (height >= 360) estimatedBitrate = 800000
+          filesize = Math.floor((estimatedBitrate * durationSec) / 8)
+        }
+        
+        const existing = qualityMap.get(qualityKey)
+        if (!existing || filesize > existing.filesize) {
+          qualityMap.set(qualityKey, {
+            formatId: `hd_${index}`,
+            quality: quality,
+            ext: 'mp4',
+            filesize: filesize,
+            width: br.width || 0,
+            height: height,
+            fps: br.fps || 30,
+            hasAudio: true,
+            url: br.play_addr.url_list[0]
+          })
+        }
+      }
+    })
+  }
+  
+  // 如果没有从 bit_rate 获取到格式，尝试使用 play_addr
+  if (qualityMap.size === 0 && video.play_addr) {
+    const playAddr = video.play_addr
+    let filesize = playAddr.data_size || 0
+    
+    if (!filesize && video.duration) {
+      const durationSec = video.duration / 1000
+      const height = playAddr.height || 720
+      let estimatedBitrate = 2000000
+      if (height >= 1080) estimatedBitrate = 5000000
+      else if (height >= 720) estimatedBitrate = 2500000
+      else if (height >= 480) estimatedBitrate = 1500000
+      else if (height >= 360) estimatedBitrate = 800000
+      filesize = Math.floor((estimatedBitrate * durationSec) / 8)
+    }
+    
+    qualityMap.set('default', {
+      formatId: 'normal',
+      quality: '默认',
+      ext: 'mp4',
+      filesize: filesize,
+      width: playAddr.width || 0,
+      height: playAddr.height || 0,
+      fps: 30,
+      hasAudio: true,
+      url: playAddr.url_list[0]
+    })
+  }
+  
+  const formats = Array.from(qualityMap.values())
+    .filter(f => f.url)
+    .sort((a, b) => (b.height || 0) - (a.height || 0))
+  
+  return {
+    id: detail.aweme_id,
+    title: detail.desc || '抖音视频',
+    description: detail.desc,
+    thumbnail: detail.video?.cover?.url_list[0] || detail.video?.dynamic_cover?.url_list[0] || '',
+    duration: detail.video?.duration ? Math.floor(detail.video.duration / 1000) : 0,
+    uploader: detail.author?.nickname || '',
+    webpageUrl: url,
+    formats: formats
+  }
+}
+
 // 使用无头浏览器解析抖音视频
 async function parseDouyinWithPuppeteer(url: string): Promise<any> {
   // 获取 Chromium 路径：优先使用系统 Chrome/Edge，否则使用 Electron 内置的 Chromium
@@ -456,20 +614,17 @@ async function parseDouyinWithPuppeteer(url: string): Promise<any> {
       }
     })
 
-    // 访问页面（短链接会重定向，需要等待跳转完成）
-    await page.goto(url, { waitUntil: 'networkidle2', timeout: 60000 })
+    // 访问页面（短链接会重定向）
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 })
 
-    // 等待页面加载并提取信息（短链接需要更长时间）
-    await new Promise(resolve => setTimeout(resolve, 8000))
+    // 等待页面加载
+    await new Promise(resolve => setTimeout(resolve, 3000))
 
     // 获取最终 URL（处理短链接重定向）
     finalUrl = page.url()
-    console.log('快手页面加载完成，最终URL:', finalUrl)
 
     // 滚动页面触发视频加载
-    console.log('滚动页面触发视频加载...')
     await page.evaluate(async () => {
-      // 滚动到视频区域
       const videoContainer = document.querySelector('.video-container') ||
                              document.querySelector('[data-e2e="video-container"]') ||
                              document.querySelector('.short-video') ||
@@ -477,17 +632,15 @@ async function parseDouyinWithPuppeteer(url: string): Promise<any> {
       if (videoContainer) {
         videoContainer.scrollIntoView({ behavior: 'instant', block: 'center' })
       }
-      // 等待视频加载
-      await new Promise(r => setTimeout(r, 3000))
+      await new Promise(r => setTimeout(r, 2000))
       
-      // 尝试点击播放按钮触发视频加载
       const playBtn = document.querySelector('.play-button') ||
                       document.querySelector('[data-e2e="play-button"]') ||
                       document.querySelector('.video-play') ||
                       document.querySelector('.player-play')
       if (playBtn) {
         ;(playBtn as HTMLElement).click()
-        await new Promise(r => setTimeout(r, 2000))
+        await new Promise(r => setTimeout(r, 1000))
       }
     })
 
@@ -570,7 +723,23 @@ async function parseDouyinWithPuppeteer(url: string): Promise<any> {
             }
 
             // 只保留该清晰度下文件大小最大的
-            const filesize = br.data_size || 0
+            let filesize = br.data_size || 0
+            
+            // 如果没有文件大小，使用码率和时长估算
+            if (!filesize && video.duration) {
+              // 抖音 duration 是毫秒，需要转换为秒
+              const durationSec = video.duration / 1000
+              // 估算码率：根据清晰度估算 (bps)
+              let estimatedBitrate = 2000000 // 默认 2Mbps
+              if (height >= 1080) estimatedBitrate = 5000000 // 1080p: 5Mbps
+              else if (height >= 720) estimatedBitrate = 2500000 // 720p: 2.5Mbps
+              else if (height >= 480) estimatedBitrate = 1500000 // 480p: 1.5Mbps
+              else if (height >= 360) estimatedBitrate = 800000 // 360p: 0.8Mbps
+              
+              // 文件大小 = 码率 * 时长 / 8 (转换为字节)
+              filesize = Math.floor((estimatedBitrate * durationSec) / 8)
+            }
+            
             const existing = qualityMap.get(qualityKey)
 
             if (!existing || filesize > existing.filesize) {
@@ -593,11 +762,25 @@ async function parseDouyinWithPuppeteer(url: string): Promise<any> {
       // 如果没有从 bit_rate 获取到格式，尝试使用 play_addr
       if (qualityMap.size === 0 && video.play_addr) {
         const playAddr = video.play_addr
+        let filesize = playAddr.data_size || 0
+        
+        // 如果没有文件大小，使用码率和时长估算
+        if (!filesize && video.duration) {
+          const durationSec = video.duration / 1000
+          const height = playAddr.height || 720
+          let estimatedBitrate = 2000000
+          if (height >= 1080) estimatedBitrate = 5000000
+          else if (height >= 720) estimatedBitrate = 2500000
+          else if (height >= 480) estimatedBitrate = 1500000
+          else if (height >= 360) estimatedBitrate = 800000
+          filesize = Math.floor((estimatedBitrate * durationSec) / 8)
+        }
+        
         qualityMap.set('default', {
           formatId: 'normal',
           quality: '默认',
           ext: 'mp4',
-          filesize: playAddr.data_size || 0,
+          filesize: filesize,
           width: playAddr.width || 0,
           height: playAddr.height || 0,
           fps: 30,
@@ -672,6 +855,213 @@ async function parseDouyinWithPuppeteer(url: string): Promise<any> {
   }
 }
 
+// 使用直接 API 调用快速解析快手视频
+async function parseKuaishouWithAPI(url: string): Promise<any> {
+
+  
+  // 从 URL 中提取视频 ID
+  let videoId: string | null = null
+  let shortCode: string | null = null
+  
+  // 尝试 /short-video/xxx 格式
+  const shortVideoMatch = url.match(/\/short-video\/([^?&#]+)/)
+  if (shortVideoMatch) {
+    videoId = shortVideoMatch[1]
+  }
+  
+  // 尝试短链接 f/xxx 格式
+  const shortLinkMatch = url.match(/\/f\/([^?&#]+)/)
+  if (shortLinkMatch) {
+    shortCode = shortLinkMatch[1]
+  }
+  
+
+  
+  // 如果有 shortCode，先获取重定向后的 URL
+  if (shortCode && !videoId) {
+    try {
+      const fullUrl = `https://www.kuaishou.com/f/${shortCode}`
+      const response = await fetch(fullUrl, {
+        redirect: 'follow',
+        method: 'GET',
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        }
+      })
+      const redirectedUrl = response.url
+
+      
+      const newVideoMatch = redirectedUrl.match(/\/short-video\/([^?&#]+)/)
+      if (newVideoMatch) {
+        videoId = newVideoMatch[1]
+      }
+      
+      // 提取 authorId 和 shareToken
+      const authorIdMatch = redirectedUrl.match(/authorId=([^&#]+)/)
+      const authorId = authorIdMatch ? authorIdMatch[1] : null
+      const shareTokenMatch = redirectedUrl.match(/shareToken=([^&#]+)/)
+      const shareToken = shareTokenMatch ? shareTokenMatch[1] : null
+      
+      // 如果获取到 videoId，直接调用 API
+      if (videoId) {
+        return await queryKuaishouVideoById(videoId, authorId)
+      }
+    } catch (e) {
+
+    }
+  }
+  
+  // 如果有 videoId，直接调用 API
+  if (videoId) {
+    const authorIdMatch = url.match(/authorId=([^&#]+)/)
+    const authorId = authorIdMatch ? authorIdMatch[1] : null
+    return await queryKuaishouVideoById(videoId, authorId)
+  }
+  
+  throw new Error('无法从 URL 提取视频 ID')
+}
+
+// 通过视频 ID 查询快手 GraphQL API
+async function queryKuaishouVideoById(videoId: string, authorId: string | null): Promise<any> {
+
+  
+  const query = {
+    operationName: 'VisionVideoDetail',
+    variables: { photoId: videoId },
+    query: `query VisionVideoDetail($photoId: String!) {
+      visionVideoDetail(photoId: $photoId) {
+        status
+        photo {
+          id
+          duration
+          caption
+          likeCount
+          viewCount
+          realLikeCount
+          coverUrl
+          photoUrl
+          photoH265Url
+          manifest {
+            version
+            businessType
+            mediaType
+            adaptationSet {
+              id
+              duration
+              representation {
+                id
+                url
+                width
+                height
+                avgBitrate
+                size
+                type
+              }
+            }
+          }
+        }
+        llsid
+      }
+    }`
+  }
+  
+  try {
+    const response = await fetch('https://www.kuaishou.com/graphql', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+      },
+      body: JSON.stringify(query)
+    })
+    
+    const result = await response.json()
+    
+    if (result?.data?.visionVideoDetail?.photo) {
+      const photo = result.data.visionVideoDetail.photo
+      
+      
+      // 构建格式列表
+      const formats: any[] = []
+      
+      // 处理 manifest
+      let manifestData = photo.manifest
+      if (photo.manifest?.id) {
+        // manifest 是引用，需要解析
+      }
+      
+      const adaptationSet = manifestData?.adaptationSet
+      if (adaptationSet?.representation) {
+        adaptationSet.representation.forEach((rep: any, index: number) => {
+          if (rep.url) {
+            let filesize = rep.size || 0
+            if (!filesize && photo.duration && rep.avgBitrate) {
+              filesize = Math.floor((rep.avgBitrate * photo.duration) / 1000 / 8)
+            } else if (!filesize && photo.duration) {
+              const durationSec = photo.duration / 1000
+              const height = rep.height || 720
+              let estimatedBitrate = 2000000
+              if (height >= 1080) estimatedBitrate = 5000000
+              else if (height >= 720) estimatedBitrate = 2500000
+              else if (height >= 480) estimatedBitrate = 1500000
+              filesize = Math.floor((estimatedBitrate * durationSec) / 8)
+            }
+            
+            formats.push({
+              formatId: `ks_${index}`,
+              quality: `${rep.height}p`,
+              ext: 'mp4',
+              filesize: filesize,
+              width: rep.width || 0,
+              height: rep.height || 0,
+              fps: 30,
+              hasAudio: true,
+              url: rep.url
+            })
+          }
+        })
+      }
+      
+      // 如果没有 manifest 格式但有 photoUrl
+      if (formats.length === 0 && photo.photoUrl) {
+        let filesize = 0
+        if (photo.duration) {
+          const durationSec = photo.duration / 1000
+          filesize = Math.floor((2000000 * durationSec) / 8) // 默认 2Mbps
+        }
+        formats.push({
+          formatId: 'default',
+          quality: '默认',
+          ext: 'mp4',
+          filesize: filesize,
+          width: 0,
+          height: 0,
+          fps: 30,
+          hasAudio: true,
+          url: photo.photoUrl
+        })
+      }
+      
+      formats.sort((a, b) => (b.height || 0) - (a.height || 0))
+      
+      return {
+        id: photo.id,
+        title: photo.caption || '快手视频',
+        description: photo.caption,
+        thumbnail: photo.coverUrl || '',
+        duration: photo.duration ? Math.floor(photo.duration / 1000) : 0,
+        uploader: '',
+        webpageUrl: `https://www.kuaishou.com/short-video/${videoId}`,
+        formats: formats
+      }
+    }
+  } catch (e) {
+
+  }
+  
+  throw new Error('API 解析失败')
+}
+
 // 使用无头浏览器解析快手视频
 async function parseKuaishouWithPuppeteer(url: string): Promise<any> {
   // 获取 Chromium 路径：优先使用系统 Chrome/Edge，否则使用 Electron 内置的 Chromium
@@ -731,11 +1121,17 @@ async function parseKuaishouWithPuppeteer(url: string): Promise<any> {
     page.on('response', async (response) => {
       const resUrl = response.url()
 
-      // 拦截快手视频详情 API
-      if (resUrl.includes('/graphql') || resUrl.includes('/rest/wd/photo/info') || resUrl.includes('/rest/wd/photo/detail')) {
+      // 拦截快手视频详情 API - 扩展更多 API 路径
+      if (resUrl.includes('/graphql') || 
+          resUrl.includes('/rest/wd/photo/info') || 
+          resUrl.includes('/rest/wd/photo/detail') ||
+          resUrl.includes('/api') ||
+          resUrl.includes('/v1/')) {
         try {
           const data = await response.json()
-          if (data?.data?.visionVideoDetail || data?.data?.videoDetail || data?.data?.photo) {
+
+          if (data?.data?.visionVideoDetail || data?.data?.videoDetail || data?.data?.photo || data?.data) {
+
             videoData = data
           }
         } catch (e) {
@@ -745,10 +1141,98 @@ async function parseKuaishouWithPuppeteer(url: string): Promise<any> {
     })
 
     // 访问页面
-    await page.goto(url, { waitUntil: 'networkidle2', timeout: 60000 })
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 })
 
-    // 等待页面加载并提取信息
-    await new Promise(resolve => setTimeout(resolve, 5000))
+    // 等待视频元素加载（减少超时）
+    try {
+      await page.waitForSelector('video', { timeout: 5000 })
+
+    } catch (e) {
+
+    }
+    
+    // 减少滚动等待时间
+    try {
+      await page.evaluate(() => {
+        window.scrollTo(0, 200)
+      })
+      await new Promise(resolve => setTimeout(resolve, 1000))
+      await page.evaluate(() => {
+        window.scrollTo(0, 0)
+      })
+      await new Promise(resolve => setTimeout(resolve, 1000))
+    } catch (e) {
+
+    }
+    
+    // 减少额外等待时间
+    await new Promise(resolve => setTimeout(resolve, 2000))
+    
+    // 更新 finalUrl
+    finalUrl = page.url()
+
+
+    // 从 URL 中提取视频 ID 并手动请求视频详情
+    const videoIdMatch = finalUrl.match(/\/short-video\/([^?&#]+)/) || url.match(/\/short-video\/([^?&#]+)/)
+    const videoId = videoIdMatch ? videoIdMatch[1] : null
+    
+    // 尝试从多个参数中提取视频 ID
+    const shareTokenMatch = finalUrl.match(/shareToken=([^&#]+)/) || url.match(/shareToken=([^&#]+)/)
+    const shareToken = shareTokenMatch ? shareTokenMatch[1] : null
+    
+
+    
+    if (videoId) {
+      // 手动发送 GraphQL 请求获取视频详情
+      try {
+        const graphqlQuery = {
+          operationName: 'VisionVideoDetail',
+          variables: { photoId: videoId },
+          query: `query VisionVideoDetail($photoId: String!) {
+            visionVideoDetail(photoId: $photoId) {
+              status
+              photo {
+                id
+                duration
+                caption
+                likeCount
+                viewCount
+                realLikeCount
+                coverUrl
+                photoUrl
+                photoH265Url
+                manifest {
+                  version
+                  businessType
+                  mediaType
+                  adaptationSet {
+                    id
+                    duration
+                  }
+                }
+              }
+              llsid
+            }
+          }`
+        }
+        
+        const response = await page.evaluate(async (query) => {
+          const res = await fetch('https://www.kuaishou.com/graphql', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(query)
+          })
+          return await res.json()
+        }, graphqlQuery)
+        
+        if (response?.data?.visionVideoDetail?.photo) {
+          videoData = response
+        }
+      } catch (e) {
+      }
+    }
 
     // 尝试从页面 SSR 数据中提取
     renderData = await page.evaluate(() => {
@@ -816,61 +1300,219 @@ async function parseKuaishouWithPuppeteer(url: string): Promise<any> {
     // 优先使用 API 数据，其次是 SSR 数据
     let detailData = videoData?.data?.visionVideoDetail?.photo ||
                      videoData?.data?.videoDetail?.photo ||
-                     videoData?.data?.photo
-
-    // 从 APOLLO_STATE 中提取视频数据
-    if (!detailData && renderData?.data) {
-      const apolloData = renderData.data
-      // 尝试从 defaultClient 中提取
-      if (apolloData.defaultClient) {
-        const client = apolloData.defaultClient
-        // 查找 VisionVideoDetailPhoto 类型的对象
-        for (const key of Object.keys(client)) {
-          const item = client[key]
-          if (key.startsWith('VisionVideoDetailPhoto:') || item?.__typename === 'VisionVideoDetailPhoto') {
-            detailData = item
-            break
-          }
-          // 兼容旧的查找方式
-          if (item?.__typename === 'VisionVideoDetail') {
-            // photo 可能是引用，需要从 client 中查找真正的数据
-            const photoRef = item.photo
-            // photoRef.id 可能已经是完整格式 "VisionVideoDetailPhoto:xxx"
-            const photoKey = photoRef?.id?.startsWith('VisionVideoDetailPhoto:') 
-              ? photoRef.id 
-              : `VisionVideoDetailPhoto:${photoRef?.id}`
-            if (photoRef?.id && client[photoKey]) {
-              detailData = client[photoKey]
-            } else {
-              detailData = item.photo || item
-            }
-            break
-          }
-          if (item?.photo) {
-            detailData = item.photo
-            break
-          }
+                     videoData?.data?.photo ||
+                     videoData?.data?.visionVideoDetail ||
+                     videoData?.data?.videoDetail
+    
+    // 处理 visionShortVideoReco.feeds 数据结构（快手推荐视频）
+    if (!detailData && videoData?.data?.visionShortVideoReco?.feeds) {
+      const feeds = videoData.data.visionShortVideoReco.feeds
+      
+      // 尝试从多个 URL 格式中提取视频 ID
+      const possibleUrls = [finalUrl, url, page.url()]
+      let targetVideoId: string | null = null
+      
+      for (const checkUrl of possibleUrls) {
+        // 尝试 /short-video/xxx 格式
+        const shortMatch = checkUrl.match(/\/short-video\/([^?&#/]+)/)
+        if (shortMatch) {
+          targetVideoId = shortMatch[1]
+          break
+        }
+        // 尝试 shareToken=xxx 格式
+        const shareMatch = checkUrl.match(/shareToken=([^&#]+)/)
+        if (shareMatch) {
+          targetVideoId = shareMatch[1]
+          break
+        }
+        // 尝试 shareId=xxx 格式
+        const shareIdMatch = checkUrl.match(/shareId=([^&#]+)/)
+        if (shareIdMatch) {
+          targetVideoId = shareIdMatch[1]
+          break
+        }
+        // 尝试 objectId=xxx 格式
+        const objectIdMatch = checkUrl.match(/objectId=([^&#]+)/)
+        if (objectIdMatch) {
+          targetVideoId = objectIdMatch[1]
+          break
         }
       }
-      // 尝试从 clients 中提取
-      if (!detailData && apolloData.clients) {
-        for (const clientKey of Object.keys(apolloData.clients)) {
-          const client = apolloData.clients[clientKey]
-          for (const key of Object.keys(client)) {
-            const item = client[key]
-            if (key.startsWith('VisionVideoDetailPhoto:') || item?.__typename === 'VisionVideoDetailPhoto') {
-              detailData = item
-              break
+      
+      // 查找当前 URL 对应的视频
+      let found = false
+      for (const feed of feeds) {
+        const feedPhotoId = feed.photo?.id
+        // 检查多种匹配方式
+        const isMatch = feedPhotoId === targetVideoId ||
+                       (targetVideoId && feed.photo?.caption?.includes(targetVideoId)) ||
+                       (targetVideoId && feed.photo?.originCaption?.includes(targetVideoId))
+        if (isMatch) {
+          detailData = feed.photo
+          found = true
+          break
+        }
+      }
+      
+      // 如果没找到匹配的，尝试通过其他方式匹配
+      if (!found) {
+        
+        // 从 URL 中提取 objectId 和 authorId
+        const objectIdMatch = finalUrl.match(/shareObjectId=([^&#]+)/) || 
+                             url.match(/shareObjectId=([^&#]+)/) ||
+                             page.url().match(/shareObjectId=([^&#]+)/)
+        const objectId = objectIdMatch ? objectIdMatch[1] : null
+        
+        const authorIdMatch = finalUrl.match(/authorId=([^&#]+)/) ||
+                             url.match(/authorId=([^&#]+)/) ||
+                             page.url().match(/authorId=([^&#]+)/)
+        const authorId = authorIdMatch ? authorIdMatch[1] : null
+
+        
+        // 如果有 authorId，尝试使用作者主页 API 获取视频列表
+        if (authorId && objectId) {
+          try {
+
+            const recoQuery = {
+              operationName: 'visionNewRecoFeed',
+              variables: { photoId: objectId, authorId: authorId },
+              query: `query visionNewRecoFeed($photoId: String!, $authorId: String!) {
+                visionNewRecoFeed(photoId: $photoId, authorId: $authorId) {
+                  feeds {
+                    type
+                    photo {
+                      id
+                      duration
+                      caption
+                      photoUrl
+                      coverUrl
+                      __typename
+                    }
+                    __typename
+                  }
+                  __typename
+                }
+              }`
             }
-            if (item?.__typename === 'VisionVideoDetail' || item?.photo) {
-              detailData = item.photo || item
-              break
+            
+            const recoResponse = await page.evaluate(async (query) => {
+              const res = await fetch('https://www.kuaishou.com/graphql', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(query)
+              })
+              return await res.json()
+            }, recoQuery)
+            
+            // 在推荐视频列表中查找目标视频
+            if (recoResponse?.data?.visionNewRecoFeed?.feeds) {
+              const recoFeeds = recoResponse.data.visionNewRecoFeed.feeds
+              for (const feed of recoFeeds) {
+                if (feed.photo?.id === objectId) {
+                  detailData = feed.photo
+                  found = true
+                  break
+                }
+              }
+            }
+          } catch (e) {
+          }
+        }
+        
+        // 如果仍然没找到，尝试点击页面上匹配 objectId 的视频元素
+        if (!found && objectId) {
+
+          try {
+            const clicked = await page.evaluate((targetId) => {
+              // 尝试多种方式找到并点击目标视频
+              const selectors = [
+                `[data-video-id="${targetId}"]`,
+                `[data-id="${targetId}"]`,
+                `a[href*="${targetId}"]`,
+                `.video-card[data-id="${targetId}"]`,
+              ]
+              for (const selector of selectors) {
+                const el = document.querySelector(selector)
+                if (el) {
+                  (el as HTMLElement).click()
+                  return true
+                }
+              }
+              return false
+            }, objectId)
+            
+            if (clicked) {
+
+              await new Promise(resolve => setTimeout(resolve, 5000))
+            }
+          } catch (e) {
+  
+          }
+        }
+        
+        // 尝试从 DOM 中获取当前播放的视频信息
+        if (!found) {
+
+          const domVideoInfo = await page.evaluate(() => {
+            const video = document.querySelector('video')
+            if (video) {
+              const sources: string[] = []
+              video.querySelectorAll('source').forEach((source: any) => {
+                if (source.src) sources.push(source.src)
+              })
+              return {
+                src: video.src || sources[0] || '',
+                duration: video.duration,
+                currentSrc: video.currentSrc
+              }
+            }
+            return null
+          })
+
+          
+          // 如果 DOM 中有视频信息，尝试匹配
+          if (domVideoInfo?.src) {
+            for (const feed of feeds) {
+              if (feed.photo?.photoUrl?.includes(domVideoInfo.src) || 
+                  domVideoInfo.src?.includes(feed.photo?.id || '')) {
+
+                detailData = feed.photo
+                found = true
+                break
+              }
             }
           }
-          if (detailData) break
         }
       }
     }
+    
+    // 如果 detailData 没有有效的视频 URL，再尝试从 renderData 获取
+    const hasValidVideoUrl = detailData?.photoUrl || detailData?.manifest || detailData?.mvUrls
+    if (!hasValidVideoUrl) {
+      
+      // 尝试遍历 defaultClient 的所有键查找视频数据
+      if (renderData?.data?.defaultClient) {
+        const client = renderData.data.defaultClient
+        for (const key of Object.keys(client)) {
+          const item = client[key]
+          // 查找包含 manifest、mvUrls、photoUrl 等视频相关字段的对象
+          if (item && (item.manifest || item.mvUrls || item.mainMvUrls || item.photoUrl || item.url || item.playUrl)) {
+
+            detailData = item
+            break
+          }
+        }
+      }
+      
+      // 如果仍然没有有效的视频URL，使用第一个 feed
+      const stillHasValidUrl = detailData?.photoUrl || detailData?.manifest || detailData?.mvUrls
+      if (!stillHasValidUrl && videoData?.data?.visionShortVideoReco?.feeds) {
+
+        detailData = videoData.data.visionShortVideoReco.feeds[0]?.photo
+      }
+    }
+    
+
 
     if (detailData) {
       const photo = detailData
@@ -909,16 +1551,30 @@ async function parseKuaishouWithPuppeteer(url: string): Promise<any> {
           if (rep.url) {
             // 估算文件大小：使用平均码率 * 时长 / 8
             // 如果 avgBitrate 是 bps，duration 是毫秒
-            let estimatedSize = 0
-            if (rep.avgBitrate && photo.duration) {
-              // avgBitrate (bps) * duration (ms) / 1000 (to seconds) / 8 (to bytes)
-              estimatedSize = Math.floor((rep.avgBitrate * photo.duration) / 1000 / 8)
+            let filesize = rep.size || rep.fileSize || 0
+            
+            if (!filesize && photo.duration) {
+              if (rep.avgBitrate) {
+                // avgBitrate (bps) * duration (ms) / 1000 (to seconds) / 8 (to bytes)
+                filesize = Math.floor((rep.avgBitrate * photo.duration) / 1000 / 8)
+              } else {
+                // 没有码率信息时，根据清晰度估算
+                const durationSec = photo.duration / 1000
+                const height = rep.height || 720
+                let estimatedBitrate = 2000000 // 默认 2Mbps
+                if (height >= 1080) estimatedBitrate = 5000000
+                else if (height >= 720) estimatedBitrate = 2500000
+                else if (height >= 480) estimatedBitrate = 1500000
+                else if (height >= 360) estimatedBitrate = 800000
+                filesize = Math.floor((estimatedBitrate * durationSec) / 8)
+              }
             }
+            
             formats.push({
               formatId: `ks_${index}`,
               quality: `${rep.height}p`,
               ext: 'mp4',
-              filesize: rep.size || rep.fileSize || estimatedSize || 0,
+              filesize: filesize,
               width: rep.width || 0,
               height: rep.height || 0,
               fps: rep.frameRate || 30,
@@ -933,11 +1589,25 @@ async function parseKuaishouWithPuppeteer(url: string): Promise<any> {
       if (photo.mvUrls && Array.isArray(photo.mvUrls)) {
         photo.mvUrls.forEach((mv: any, index: number) => {
           if (mv.url) {
+            let filesize = mv.size || 0
+            
+            // 如果没有文件大小，使用码率和时长估算
+            if (!filesize && photo.duration) {
+              const durationSec = photo.duration / 1000
+              const height = mv.height || 720
+              let estimatedBitrate = 2000000
+              if (height >= 1080) estimatedBitrate = 5000000
+              else if (height >= 720) estimatedBitrate = 2500000
+              else if (height >= 480) estimatedBitrate = 1500000
+              else if (height >= 360) estimatedBitrate = 800000
+              filesize = Math.floor((estimatedBitrate * durationSec) / 8)
+            }
+            
             formats.push({
               formatId: `ks_mv_${index}`,
               quality: mv.quality || '默认',
               ext: 'mp4',
-              filesize: mv.size || 0,
+              filesize: filesize,
               width: mv.width || 0,
               height: mv.height || 0,
               fps: 30,
@@ -950,11 +1620,25 @@ async function parseKuaishouWithPuppeteer(url: string): Promise<any> {
 
       // 处理 mainMvUrls
       if (formats.length === 0 && photo.mainMvUrls?.[0]?.url) {
+        let filesize = photo.mainMvUrls[0].size || photo.size || 0
+        
+        // 如果没有文件大小，使用码率和时长估算
+        if (!filesize && photo.duration) {
+          const durationSec = photo.duration / 1000
+          const height = photo.mainMvUrls[0].height || photo.height || 720
+          let estimatedBitrate = 2000000
+          if (height >= 1080) estimatedBitrate = 5000000
+          else if (height >= 720) estimatedBitrate = 2500000
+          else if (height >= 480) estimatedBitrate = 1500000
+          else if (height >= 360) estimatedBitrate = 800000
+          filesize = Math.floor((estimatedBitrate * durationSec) / 8)
+        }
+        
         formats.push({
           formatId: 'default',
           quality: '默认',
           ext: 'mp4',
-          filesize: photo.mainMvUrls[0].size || photo.size || 0,
+          filesize: filesize,
           width: photo.mainMvUrls[0].width || photo.width || 0,
           height: photo.mainMvUrls[0].height || photo.height || 0,
           fps: 30,
@@ -965,11 +1649,25 @@ async function parseKuaishouWithPuppeteer(url: string): Promise<any> {
 
       // 备用：使用 photoUrl
       if (formats.length === 0 && photo.photoUrl) {
+        let filesize = photo.size || 0
+        
+        // 如果没有文件大小，使用码率和时长估算
+        if (!filesize && photo.duration) {
+          const durationSec = photo.duration / 1000
+          const height = photo.height || 720
+          let estimatedBitrate = 2000000
+          if (height >= 1080) estimatedBitrate = 5000000
+          else if (height >= 720) estimatedBitrate = 2500000
+          else if (height >= 480) estimatedBitrate = 1500000
+          else if (height >= 360) estimatedBitrate = 800000
+          filesize = Math.floor((estimatedBitrate * durationSec) / 8)
+        }
+        
         formats.push({
           formatId: 'default',
           quality: '默认',
           ext: 'mp4',
-          filesize: photo.size || 0,
+          filesize: filesize,
           width: photo.width || 0,
           height: photo.height || 0,
           fps: 30,
@@ -980,11 +1678,25 @@ async function parseKuaishouWithPuppeteer(url: string): Promise<any> {
 
       // 备用：使用任何包含 url 的字段
       if (formats.length === 0 && photo.url) {
+        let filesize = photo.size || 0
+        
+        // 如果没有文件大小，使用码率和时长估算
+        if (!filesize && photo.duration) {
+          const durationSec = photo.duration / 1000
+          const height = photo.height || 720
+          let estimatedBitrate = 2000000
+          if (height >= 1080) estimatedBitrate = 5000000
+          else if (height >= 720) estimatedBitrate = 2500000
+          else if (height >= 480) estimatedBitrate = 1500000
+          else if (height >= 360) estimatedBitrate = 800000
+          filesize = Math.floor((estimatedBitrate * durationSec) / 8)
+        }
+        
         formats.push({
           formatId: 'default',
           quality: '默认',
           ext: 'mp4',
-          filesize: photo.size || 0,
+          filesize: filesize,
           width: photo.width || 0,
           height: photo.height || 0,
           fps: 30,
@@ -995,6 +1707,14 @@ async function parseKuaishouWithPuppeteer(url: string): Promise<any> {
 
       // 按高度降序排序
       formats.sort((a, b) => (b.height || 0) - (a.height || 0))
+
+      // 验证视频 ID 是否匹配目标视频
+      const targetVideoId = videoId || (finalUrl.match(/\/short-video\/([^?&#]+)/) || url.match(/\/short-video\/([^?&#]+)/) || [])[1]
+      const returnedVideoId = photo.photoId || photo.id
+      if (targetVideoId && returnedVideoId && targetVideoId !== returnedVideoId) {
+
+        throw new Error(`视频 ID 不匹配: 目标视频 ${targetVideoId}，返回视频 ${returnedVideoId}`)
+      }
 
       videoInfo = {
         id: photo.photoId || photo.id || Date.now().toString(),
@@ -1008,68 +1728,102 @@ async function parseKuaishouWithPuppeteer(url: string): Promise<any> {
       }
     } else {
       // 如果 API 失败，尝试从页面 DOM 提取
-      console.log('API数据获取失败，尝试从DOM提取...')
+
+      
+      // 尝试触发视频加载 - 滚动和交互
+      await page.evaluate(async () => {
+        // 滚动到页面底部再回来
+        window.scrollTo(0, document.body.scrollHeight)
+        await new Promise(r => setTimeout(r, 1000))
+        window.scrollTo(0, 0)
+        await new Promise(r => setTimeout(r, 1000))
+        
+        // 尝试点击视频区域
+        const videoContainer = document.querySelector('.video-container') || 
+                             document.querySelector('[class*="video"]') ||
+                             document.querySelector('video')
+        if (videoContainer) {
+          ;(videoContainer as HTMLElement).click()
+          await new Promise(r => setTimeout(r, 2000))
+        }
+      })
+      
+      // 再等待一下让视频加载
+      await new Promise(resolve => setTimeout(resolve, 3000))
       
       // 先检查页面是否有 video 元素
       const hasVideo = await page.evaluate(() => {
         const videoEl = document.querySelector('video')
+        // 尝试所有可能的视频相关属性
+        const possibleSources = [
+          videoEl?.src,
+          videoEl?.currentSrc,
+          videoEl?.querySelector('source')?.src,
+          (videoEl as any)?.dataset?.src,
+          (videoEl as any)?.dataset?.videoSrc,
+          (videoEl as any)?.dataset?.url,
+          (videoEl as any)?.props?.src,
+          (videoEl as any)?.props?.url,
+        ]
         return {
           hasVideo: !!videoEl,
           videoSrc: videoEl?.src || '',
+          currentSrc: videoEl?.currentSrc || '',
           sourceSrc: videoEl?.querySelector('source')?.src || '',
           dataSrc: (videoEl as any)?.dataset?.src || '',
+          allSources: possibleSources.filter(s => s),
           allVideos: Array.from(document.querySelectorAll('video')).map(v => ({
             src: v.src,
+            currentSrc: v.currentSrc,
             dataSrc: (v as any).dataset?.src,
-            currentSrc: v.currentSrc
+            duration: v.duration
           }))
         }
       })
-      console.log('页面视频元素检查:', hasVideo)
+
       
       videoInfo = await page.evaluate(() => {
-        const videoEl = document.querySelector('video') as HTMLVideoElement
+        // 尝试多种选择器
         const titleEl = document.querySelector('.video-title') ||
                         document.querySelector('[data-e2e="video-title"]') ||
+                        document.querySelector('[class*="title"]') ||
                         document.querySelector('.caption') ||
                         document.querySelector('.video-info-title') ||
                         document.querySelector('h1') ||
-                        document.querySelector('.title')
+                        document.querySelector('[class*="desc"]')
         const authorEl = document.querySelector('.user-name') ||
                          document.querySelector('[data-e2e="user-name"]') ||
+                         document.querySelector('[class*="author"]') ||
                          document.querySelector('.author-name') ||
-                         document.querySelector('.video-info-user-name') ||
-                         document.querySelector('.author')
-
-        // 尝试获取视频 src（多种方式）
+                         document.querySelector('.video-info-user-name')
+        
+        // 查找视频元素
+        const videoEl = document.querySelector('video') as HTMLVideoElement
+        
+        // 尝试多种方式获取视频 URL
         let videoSrc: string | undefined = videoEl?.src
-        if (!videoSrc) {
-          const sourceEl = videoEl?.querySelector('source')
-          videoSrc = sourceEl?.src
-        }
-        if (!videoSrc) {
-          videoSrc = (videoEl as any)?.dataset?.src
-        }
-        if (!videoSrc) {
-          videoSrc = videoEl?.currentSrc
+        if (!videoSrc) videoSrc = videoEl?.currentSrc
+        if (!videoSrc) videoSrc = videoEl?.querySelector('source')?.src
+        if (!videoSrc) videoSrc = (videoEl as any)?.dataset?.src
+        if (!videoSrc) videoSrc = (videoEl as any)?.dataset?.videoSrc
+        if (!videoSrc) videoSrc = (videoEl as any)?.dataset?.url
+        if (!videoSrc) videoSrc = (videoEl as any)?.props?.src
+        if (!videoSrc) videoSrc = (videoEl as any)?.props?.url
+        
+        // 尝试从 img 标签的 src 获取缩略图
+        let thumbnail = ''
+        const imgEl = document.querySelector('[class*="cover"] img') || 
+                    document.querySelector('[class*="thumbnail"] img') ||
+                    document.querySelector('video')?.poster
+        if (imgEl) {
+          thumbnail = (imgEl as HTMLImageElement).src || imgEl.getAttribute('data-src') || ''
         }
         
-        // 尝试从所有 video 元素中找
-        if (!videoSrc) {
-          const allVideos = document.querySelectorAll('video')
-          for (const v of allVideos) {
-            if (v.src || (v as any).dataset?.src) {
-              videoSrc = v.src || (v as any).dataset?.src
-              break
-            }
-          }
-        }
-
         return {
           id: Date.now().toString(),
           title: titleEl?.textContent?.trim() || '快手视频',
           description: titleEl?.textContent?.trim() || '',
-          thumbnail: '',
+          thumbnail: thumbnail,
           duration: videoEl?.duration || 0,
           uploader: authorEl?.textContent?.trim() || '',
           webpageUrl: window.location.href,
@@ -1087,7 +1841,7 @@ async function parseKuaishouWithPuppeteer(url: string): Promise<any> {
         }
       })
       
-      console.log('DOM提取结果:', videoInfo)
+
     }
 
     if (!videoInfo || videoInfo.formats.length === 0) {
@@ -1104,25 +1858,28 @@ async function parseKuaishouWithPuppeteer(url: string): Promise<any> {
 ipcMain.handle('ytdlp:parse', async (_event, ...args) => {
   const url = args[0] as string
   const cookiesFile = args[1] as string | undefined
-  // 如果是抖音链接，使用 Puppeteer 解析
+  // 如果是抖音链接，优先使用 API 解析
   if (isDouyinUrl(url)) {
     try {
-      return await parseDouyinWithPuppeteer(url)
+      return await parseDouyinWithAPI(url)
     } catch (e: any) {
-      // 如果 Puppeteer 失败，回退到 yt-dlp
+      try {
+        return await parseDouyinWithPuppeteer(url)
+      } catch (e2: any) {
+      }
     }
   }
   // 如果是快手链接，使用 Puppeteer 解析
   if (isKuaishouUrl(url)) {
     try {
-      console.log('检测到快手链接，使用 Puppeteer 解析:', url)
-      const result = await parseKuaishouWithPuppeteer(url)
-      console.log('快手解析成功:', result.id)
+      const result = await parseKuaishouWithAPI(url)
       return result
     } catch (e: any) {
-      console.error('快手 Puppeteer 解析失败:', e.message)
-      // 如果 Puppeteer 失败，抛出错误而不是回退到 yt-dlp
-      throw new Error(`快手视频解析失败: ${e.message}`)
+      try {
+        const result = await parseKuaishouWithPuppeteer(url)
+        return result
+      } catch (e2: any) {
+      }
     }
   }
   
