@@ -66,18 +66,15 @@ function getFfmpegPath(): string {
   return ffmpegName
 }
 
-// 获取 JS 运行时路径（用于 YouTube JS 解密）
-// 优先使用 Node.js，因为它更常见且 yt-dlp 支持更好
-function getJsRuntimePath(): string | null {
+// 检查 JS 运行时是否可用
+function checkJsRuntime(): { available: boolean; path: string | null; name: string } {
   const platform = process.platform
   const isWin = platform === 'win32'
   
-  // 1. 首先尝试 Node.js（yt-dlp 支持 node 运行时）
+  // 1. 首先尝试 Node.js
   const nodeName = isWin ? 'node.exe' : 'node'
   const nodePaths = [
-    // 系统 PATH 中的 node
     nodeName,
-    // 常见安装路径
     isWin ? 'C:\\Program Files\\nodejs\\node.exe' : '/usr/bin/node',
     isWin ? 'C:\\Program Files (x86)\\nodejs\\node.exe' : '/usr/local/bin/node',
     isWin ? 'D:\\NodeJs\\node.exe' : '',
@@ -87,10 +84,9 @@ function getJsRuntimePath(): string | null {
   for (const p of nodePaths) {
     try {
       if (fs.existsSync(p)) {
-        return p
+        return { available: true, path: p, name: 'Node.js' }
       }
     } catch {
-      // 忽略错误，继续检查下一个
     }
   }
   
@@ -107,14 +103,35 @@ function getJsRuntimePath(): string | null {
   for (const p of denoPaths) {
     try {
       if (fs.existsSync(p)) {
-        return p
+        return { available: true, path: p, name: 'Deno' }
       }
     } catch {
-      // 忽略错误，继续检查下一个
     }
   }
   
-  return null
+  return { available: false, path: null, name: '' }
+}
+
+// 弹出提示让用户下载 Node.js
+async function promptNodeDownload(): Promise<void> {
+  const result = await dialog.showMessageBox({
+    type: 'info',
+    title: '需要 Node.js 运行时',
+    message: 'YouTube 视频解析需要 Node.js 运行时',
+    detail: '点击"确定"将跳转到 Node.js 下载页面，请下载 Windows Installer (.msi) 版本并安装后重试。',
+    buttons: ['确定', '取消'],
+    defaultId: 0,
+  })
+  
+  if (result.response === 0) {
+    shell.openExternal('https://nodejs.org/zh-cn/download/package-manager')
+  }
+}
+
+// 获取 JS 运行时路径
+function getJsRuntimePath(): string | null {
+  const result = checkJsRuntime()
+  return result.path
 }
 
 // 检查 ffmpeg 是否可用（保留供将来使用）
@@ -1852,16 +1869,20 @@ ipcMain.handle('ytdlp:parse', async (_event, ...args) => {
     
     // YouTube 需要 JS 运行时（优先使用 Node.js）
     if (isYoutube) {
-      const runtimePath = getJsRuntimePath()
+      const runtimeCheck = checkJsRuntime()
+      if (!runtimeCheck.available) {
+        await promptNodeDownload()
+        reject(new Error('需要安装 Node.js 运行时才能解析 YouTube 视频'))
+        return
+      }
+      
+      const runtimePath = runtimeCheck.path
       if (runtimePath) {
-        // 根据路径判断是 Node.js 还是 Deno
         const isNode = runtimePath.includes('node')
         const runtimeName = isNode ? 'node' : 'deno'
         args.push('--js-runtimes', `${runtimeName}:${runtimePath}`)
       }
       
-      // YouTube 可能需要 cookies 来绕过登录验证
-      // 优先使用用户提供的 cookies 文件
       if (cookiesFile && fs.existsSync(cookiesFile)) {
         args.push('--cookies', cookiesFile)
       }
@@ -2135,16 +2156,20 @@ ipcMain.handle('ytdlp:download', async (_event, options: {
     
     // YouTube 需要 JS 运行时（优先使用 Node.js）
     if (isYoutube) {
-      const runtimePath = getJsRuntimePath()
+      const runtimeCheck = checkJsRuntime()
+      if (!runtimeCheck.available) {
+        await promptNodeDownload()
+        reject(new Error('需要安装 Node.js 运行时才能下载 YouTube 视频'))
+        return
+      }
+      
+      const runtimePath = runtimeCheck.path
       if (runtimePath) {
-        // 根据路径判断是 Node.js 还是 Deno
         const isNode = runtimePath.includes('node')
         const runtimeName = isNode ? 'node' : 'deno'
         args.push('--js-runtimes', `${runtimeName}:${runtimePath}`)
       }
       
-      // YouTube 可能需要 cookies 来绕过登录验证
-      // 优先使用用户提供的 cookies 文件
       if (options.cookiesFile && fs.existsSync(options.cookiesFile)) {
         args.push('--cookies', options.cookiesFile)
       }
