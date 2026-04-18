@@ -122,9 +122,25 @@ async function promptNodeDownload(): Promise<void> {
     buttons: ['确定', '取消'],
     defaultId: 0,
   })
-  
+
   if (result.response === 0) {
     shell.openExternal('https://nodejs.org/zh-cn/download/package-manager')
+  }
+}
+
+// 弹出提示让用户下载 Chrome
+async function promptChromeDownload(): Promise<void> {
+  const result = await dialog.showMessageBox({
+    type: 'info',
+    title: '需要 Google Chrome 浏览器',
+    message: '抖音/快手视频解析需要 Chrome 浏览器支持',
+    detail: '点击"确定"将跳转到 Chrome 下载页面，请下载并安装 Chrome 后重试。',
+    buttons: ['确定', '取消'],
+    defaultId: 0,
+  })
+
+  if (result.response === 0) {
+    shell.openExternal('https://www.google.com/chrome/')
   }
 }
 
@@ -575,11 +591,6 @@ function getChromiumPath(): string | null {
     if (fs.existsSync(p)) return p
   }
 
-  // 3. 使用 Electron 内置 Chromium（打包后可用）
-  if (fs.existsSync(process.execPath)) {
-    return process.execPath
-  }
-
   return null
 }
 
@@ -587,8 +598,14 @@ function getChromiumPath(): string | null {
 async function parseDouyinWithPuppeteer(url: string): Promise<any> {
   const chromePath = getChromiumPath()
 
+  if (!chromePath) {
+    await promptChromeDownload()
+    throw new Error('未检测到 Chrome 浏览器')
+  }
+
   const launchOptions: any = {
     headless: true,
+    executablePath: chromePath,
     args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',
@@ -597,10 +614,6 @@ async function parseDouyinWithPuppeteer(url: string): Promise<any> {
       '--disable-gpu',
       '--window-size=1920,1080'
     ]
-  }
-
-  if (chromePath) {
-    launchOptions.executablePath = chromePath
   }
 
   const browser = await puppeteer.launch(launchOptions)
@@ -1082,8 +1095,14 @@ async function queryKuaishouVideoById(videoId: string): Promise<any> {
 async function parseKuaishouWithPuppeteer(url: string): Promise<any> {
   const chromePath = getChromiumPath()
 
+  if (!chromePath) {
+    await promptChromeDownload()
+    throw new Error('未检测到 Chrome 浏览器')
+  }
+
   const launchOptions: any = {
     headless: true,
+    executablePath: chromePath,
     args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',
@@ -1092,10 +1111,6 @@ async function parseKuaishouWithPuppeteer(url: string): Promise<any> {
       '--disable-gpu',
       '--window-size=1920,1080'
     ]
-  }
-
-  if (chromePath) {
-    launchOptions.executablePath = chromePath
   }
 
   const browser = await puppeteer.launch(launchOptions)
