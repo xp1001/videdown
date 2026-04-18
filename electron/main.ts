@@ -128,12 +128,6 @@ async function promptNodeDownload(): Promise<void> {
   }
 }
 
-// 获取 JS 运行时路径
-function getJsRuntimePath(): string | null {
-  const result = checkJsRuntime()
-  return result.path
-}
-
 // 检查 ffmpeg 是否可用（保留供将来使用）
 // @ts-ignore
 async function checkFfmpeg(): Promise<boolean> {
@@ -1889,12 +1883,14 @@ ipcMain.handle('ytdlp:parse', async (_event, ...args) => {
       
       if (cookiesFile && fs.existsSync(cookiesFile)) {
         args.push('--cookies', cookiesFile)
+      } else {
+        args.push('--cookies-from-browser', 'edge')
       }
     }
     
     args.push(url)
     
-    // 设置工作目录为 yt-dlp 所在目录，确保能找到 deno.exe
+    // 设置工作目录为 yt-dlp 所在目录
     const cwd = path.dirname(ytdlpPath)
     const child = spawn(ytdlpPath, args, { cwd })
     let output = ''
@@ -2176,12 +2172,14 @@ ipcMain.handle('ytdlp:download', async (_event, options: {
       
       if (options.cookiesFile && fs.existsSync(options.cookiesFile)) {
         args.push('--cookies', options.cookiesFile)
+      } else {
+        args.push('--cookies-from-browser', 'edge')
       }
     }
     
     args.push(options.url)
     
-    // 设置工作目录为 yt-dlp 所在目录，确保能找到 deno.exe
+    // 设置工作目录为 yt-dlp 所在目录
     const cwd = path.dirname(ytdlpPath)
     const child = spawn(ytdlpPath, args, { cwd })
     let downloadedFile = ''
