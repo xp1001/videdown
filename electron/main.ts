@@ -559,31 +559,42 @@ async function parseDouyinWithAPI(url: string): Promise<any> {
   }
 }
 
-// 使用无头浏览器解析抖音视频
-async function parseDouyinWithPuppeteer(url: string): Promise<any> {
-  // 获取 Chromium 路径：优先使用系统 Chrome/Edge，否则使用 Electron 内置的 Chromium
-  const browserPaths = [
-    // Chrome
+// 获取 Chromium 路径
+function getChromiumPath(): string | null {
+  // 1. 优先使用系统 Chrome
+  const chromePaths = [
     'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
     'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
     path.join(os.homedir(), 'AppData', 'Local', 'Google', 'Chrome', 'Application', 'chrome.exe'),
-    // Edge
+  ]
+  for (const p of chromePaths) {
+    if (fs.existsSync(p)) return p
+  }
+
+  // 2. 使用系统 Edge（Windows 10/11 预装）
+  const edgePaths = [
     'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
     'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',
     path.join(os.homedir(), 'AppData', 'Local', 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
   ]
-
-  let chromePath = browserPaths.find(p => fs.existsSync(p))
-  
-  // 如果没有找到系统浏览器，使用 Electron 内置的 Chromium
-  if (!chromePath) {
-    // Electron 的可执行文件就是 Chromium
-    chromePath = process.execPath
+  for (const p of edgePaths) {
+    if (fs.existsSync(p)) return p
   }
 
-  const browser = await puppeteer.launch({
+  // 3. 使用 Electron 内置 Chromium（打包后可用）
+  if (fs.existsSync(process.execPath)) {
+    return process.execPath
+  }
+
+  return null
+}
+
+// 使用无头浏览器解析抖音视频
+async function parseDouyinWithPuppeteer(url: string): Promise<any> {
+  const chromePath = getChromiumPath()
+
+  const launchOptions: any = {
     headless: true,
-    executablePath: chromePath,
     args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',
@@ -592,7 +603,13 @@ async function parseDouyinWithPuppeteer(url: string): Promise<any> {
       '--disable-gpu',
       '--window-size=1920,1080'
     ]
-  })
+  }
+
+  if (chromePath) {
+    launchOptions.executablePath = chromePath
+  }
+
+  const browser = await puppeteer.launch(launchOptions)
 
   try {
     const page = await browser.newPage()
@@ -1069,29 +1086,10 @@ async function queryKuaishouVideoById(videoId: string): Promise<any> {
 
 // 使用无头浏览器解析快手视频
 async function parseKuaishouWithPuppeteer(url: string): Promise<any> {
-  // 获取 Chromium 路径：优先使用系统 Chrome/Edge，否则使用 Electron 内置的 Chromium
-  const browserPaths = [
-    // Chrome
-    'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
-    'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
-    path.join(os.homedir(), 'AppData', 'Local', 'Google', 'Chrome', 'Application', 'chrome.exe'),
-    // Edge
-    'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
-    'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',
-    path.join(os.homedir(), 'AppData', 'Local', 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
-  ]
+  const chromePath = getChromiumPath()
 
-  let chromePath = browserPaths.find(p => fs.existsSync(p))
-  
-  // 如果没有找到系统浏览器，使用 Electron 内置的 Chromium
-  if (!chromePath) {
-    // Electron 的可执行文件就是 Chromium
-    chromePath = process.execPath
-  }
-
-  const browser = await puppeteer.launch({
+  const launchOptions: any = {
     headless: true,
-    executablePath: chromePath,
     args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',
@@ -1100,7 +1098,13 @@ async function parseKuaishouWithPuppeteer(url: string): Promise<any> {
       '--disable-gpu',
       '--window-size=1920,1080'
     ]
-  })
+  }
+
+  if (chromePath) {
+    launchOptions.executablePath = chromePath
+  }
+
+  const browser = await puppeteer.launch(launchOptions)
 
   try {
     const page = await browser.newPage()
