@@ -52,7 +52,7 @@
             
             <!-- Cookies File -->
             <div class="flex flex-col gap-2">
-              <label class="text-sm font-medium text-on-surface">YouTube Cookies 文件</label>
+              <label class="text-sm font-medium text-on-surface">设置Cookies 文件</label>
               <div class="flex gap-2">
                 <input 
                   v-model="settings.cookiesFile"
@@ -76,7 +76,7 @@
                 </button>
               </div>
               <p class="text-[11px] text-on-surface-variant">
-                用于下载需要登录的 YouTube 视频。可使用 Chrome 扩展 "Get cookies.txt" 导出
+                用于下载B站和YouTube 视频。可使用 Chrome 扩展 "Get cookies.txt" 导出
               </p>
             </div>
           </div>

@@ -106,6 +106,26 @@
             </div>
           </div>
 
+          <!-- Bilibili Cookie Hint -->
+          <div v-if="showBilibiliCookieHint && !hasParsed" class="flex flex-col gap-2 p-4 bg-tertiary-container/30 rounded-lg border border-tertiary/20">
+            <div class="flex items-start gap-3">
+              <MaterialIcon name="info" :size="20" class="text-tertiary flex-shrink-0 mt-0.5" />
+              <div class="flex-1">
+                <p class="text-sm font-medium text-on-surface">B站视频需要 Cookie 才能下载</p>
+                <p class="text-xs text-on-surface-variant mt-1 leading-relaxed">
+                  由于 B站的限制，需要导入 cookies.txt 文件才能下载完整视频。
+                </p>
+                <button 
+                  @click="goToSettings"
+                  class="mt-2 flex items-center gap-1 text-xs text-tertiary hover:text-tertiary/80 underline underline-offset-2 transition-colors"
+                >
+                  <MaterialIcon name="settings" :size="14" />
+                  <span>去设置导入 Cookie</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
           <!-- Supported Platforms -->
           <div class="flex flex-col gap-2 mt-2">
             <span class="text-[10px] font-bold text-outline uppercase tracking-[0.1em] ml-1">支持解析平台</span>
@@ -359,6 +379,17 @@ const isYouTubeUrl = computed(() => {
   const urlStr = url.value.trim().toLowerCase()
   return urlStr.includes('youtube.com') || urlStr.includes('youtu.be')
 })
+
+// 检测是否为 B站 链接（用于显示 Cookie 提示）
+const showBilibiliCookieHint = computed(() => {
+  const urlStr = url.value.trim().toLowerCase()
+  return urlStr.includes('bilibili.com') || urlStr.includes('b23.tv')
+})
+
+// 跳转到设置页
+function goToSettings() {
+  window.dispatchEvent(new CustomEvent('navigate-to-settings'))
+}
 
 // 打开 Cookie 帮助页面
 function openCookieHelp() {
