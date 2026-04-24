@@ -594,6 +594,31 @@ function getChromiumPath(): string | null {
   return null
 }
 
+// 获取可用的浏览器名称（用于 yt-dlp --cookies-from-browser）
+function getAvailableBrowser(): string {
+  // 优先检查 Chrome
+  const chromePaths = [
+    'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+    'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+    path.join(os.homedir(), 'AppData', 'Local', 'Google', 'Chrome', 'Application', 'chrome.exe'),
+  ]
+  for (const p of chromePaths) {
+    if (fs.existsSync(p)) return 'chrome'
+  }
+
+  // 然后检查 Edge
+  const edgePaths = [
+    'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
+    'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',
+    path.join(os.homedir(), 'AppData', 'Local', 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
+  ]
+  for (const p of edgePaths) {
+    if (fs.existsSync(p)) return 'edge'
+  }
+
+  return ''
+}
+
 // 使用无头浏览器解析抖音视频
 async function parseDouyinWithPuppeteer(url: string): Promise<any> {
   const chromePath = getChromiumPath()
@@ -1870,7 +1895,8 @@ ipcMain.handle('ytdlp:parse', async (_event, ...args) => {
   return new Promise(async (resolve, reject) => {
     const ytdlpPath = getYtDlpPath()
     const isYoutube = url.includes('youtube.com') || url.includes('youtu.be')
-    
+    const isBilibili = url.includes('bilibili.com') || url.includes('b23.tv')
+
     const args: string[] = [
       '--dump-json',
       '--no-playlist',
@@ -1879,7 +1905,7 @@ ipcMain.handle('ytdlp:parse', async (_event, ...args) => {
       '--add-header', 'Accept-Language:en-US,en;q=0.9',
       '--add-header', 'Accept:text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
     ]
-    
+
     // YouTube 需要 JS 运行时（优先使用 Node.js）
     if (isYoutube) {
       const runtimeCheck = checkJsRuntime()
@@ -1888,18 +1914,29 @@ ipcMain.handle('ytdlp:parse', async (_event, ...args) => {
         reject(new Error('需要安装 Node.js 运行时才能解析 YouTube 视频'))
         return
       }
-      
+
       const runtimePath = runtimeCheck.path
       if (runtimePath) {
         const isNode = runtimePath.includes('node')
         const runtimeName = isNode ? 'node' : 'deno'
         args.push('--js-runtimes', `${runtimeName}:${runtimePath}`)
       }
-      
+
       if (cookiesFile && fs.existsSync(cookiesFile)) {
         args.push('--cookies', cookiesFile)
       } else {
-        args.push('--cookies-from-browser', 'edge')
+        const browser = getAvailableBrowser()
+        if (browser) args.push('--cookies-from-browser', browser)
+      }
+    }
+
+    // B站也需要 cookies 避免 412 错误
+    if (isBilibili) {
+      if (cookiesFile && fs.existsSync(cookiesFile)) {
+        args.push('--cookies', cookiesFile)
+      } else {
+        const browser = getAvailableBrowser()
+        if (browser) args.push('--cookies-from-browser', browser)
       }
     }
     
@@ -2146,17 +2183,13 @@ ipcMain.handle('ytdlp:download', async (_event, options: {
     
     const ytdlpPath = getYtDlpPath()
     const isYoutube = options.url.includes('youtube.com') || options.url.includes('youtu.be')
-    
-    // 使用固定文件名避免编码问题
+    const isBilibili = options.url.includes('bilibili.com') || options.url.includes('b23.tv')
+
     const safeFilename = `video_${Date.now()}`
     const outputTemplate = path.join(outputDir, `${safeFilename}.%(ext)s`)
 
-    // 根据平台选择格式策略
-    // Instagram的音视频通常是分离的，需要下载后合并
-    // B站/YouTube等平台也可能需要单独下载视频和音频后合并
     const formatSelector = `${options.formatId}+bestaudio[ext=m4a]/bestaudio/best`
 
-    // 使用最佳视频+最佳音频，自动合并
     const args: string[] = [
       '-f', formatSelector,
       '-o', outputTemplate,
@@ -2168,7 +2201,7 @@ ipcMain.handle('ytdlp:download', async (_event, options: {
       '--postprocessor-args', 'FFmpegMetadata:-write_id3v1 1',
       '--encoding', 'utf-8',
     ]
-    
+
     // YouTube 需要 JS 运行时（优先使用 Node.js）
     if (isYoutube) {
       const runtimeCheck = checkJsRuntime()
@@ -2177,18 +2210,29 @@ ipcMain.handle('ytdlp:download', async (_event, options: {
         reject(new Error('需要安装 Node.js 运行时才能下载 YouTube 视频'))
         return
       }
-      
+
       const runtimePath = runtimeCheck.path
       if (runtimePath) {
         const isNode = runtimePath.includes('node')
         const runtimeName = isNode ? 'node' : 'deno'
         args.push('--js-runtimes', `${runtimeName}:${runtimePath}`)
       }
-      
+
       if (options.cookiesFile && fs.existsSync(options.cookiesFile)) {
         args.push('--cookies', options.cookiesFile)
       } else {
-        args.push('--cookies-from-browser', 'edge')
+        const browser = getAvailableBrowser()
+        if (browser) args.push('--cookies-from-browser', browser)
+      }
+    }
+
+    // B站也需要 cookies 避免 412 错误
+    if (isBilibili) {
+      if (options.cookiesFile && fs.existsSync(options.cookiesFile)) {
+        args.push('--cookies', options.cookiesFile)
+      } else {
+        const browser = getAvailableBrowser()
+        if (browser) args.push('--cookies-from-browser', browser)
       }
     }
     
