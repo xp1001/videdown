@@ -8,10 +8,10 @@
     
     <!-- Main Content -->
     <main class="flex-1 flex overflow-hidden">
-      <DownloadView v-if="currentTab === 'download'" />
-      <HistoryView v-else-if="currentTab === 'history'" />
-      <AboutView v-else-if="currentTab === 'about'" />
-      <SettingsView v-else-if="currentTab === 'settings'" />
+      <DownloadView v-show="currentTab === 'download'" />
+      <HistoryView v-show="currentTab === 'history'" />
+      <AboutView v-show="currentTab === 'about'" />
+      <SettingsView v-show="currentTab === 'settings'" />
     </main>
   </div>
 </template>
@@ -29,7 +29,14 @@ const currentTab = ref<TabType>('download')
 
 function changeTab(tab: TabType) {
   currentTab.value = tab
+  // 通知子组件标签已切换
+  window.dispatchEvent(new CustomEvent('tab-changed', { detail: tab }))
 }
+
+// 监听跳转设置页事件
+window.addEventListener('navigate-to-settings', () => {
+  currentTab.value = 'settings'
+})
 
 // 监听菜单点击关于事件
 let unsubscribeMenu: (() => void) | null = null

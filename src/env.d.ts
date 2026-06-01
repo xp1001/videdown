@@ -23,7 +23,7 @@ interface Window {
     }
     ytdlp: {
       parse: (url: string, cookiesFile?: string) => Promise<any>
-      download: (options: { 
+      download: (options: {
         url: string
         formatId: string
         outputDir: string
@@ -31,13 +31,18 @@ interface Window {
         taskId: string
         directUrl?: string 
         cookiesFile?: string
+        downloadMode?: 'video' | 'audio'
+        audioTrack?: any
+        subtitles?: string[]
       }) => Promise<any>
+      pauseDownload: (taskId: string) => Promise<boolean>
     }
     onDownloadProgress: (callback: (data: any) => void) => () => void
     history: {
       get: () => Promise<any[]>
       add: (record: any) => Promise<boolean>
       delete: (id: string) => Promise<boolean>
+      onUpdated: (callback: (history: any[]) => void) => () => void
     }
     // 更新检查
     checkForUpdates: () => Promise<{
