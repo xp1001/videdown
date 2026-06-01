@@ -962,6 +962,9 @@ async function processDownload(task: DownloadTask) {
     if ((task as any).downloadMode === 'audio') {
       downloadOptions.downloadMode = 'audio'
     }
+    if ((task as any).downloadMode === 'subtitle') {
+      downloadOptions.downloadMode = 'subtitle'
+    }
     if ((task as any).selectedAudioTrack) {
       downloadOptions.audioTrack = { ...(task as any).selectedAudioTrack }
     }
