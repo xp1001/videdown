@@ -183,6 +183,9 @@ function ensureDownloadDir(dir: string): string {
   return dir
 }
 
+// 存储正在进行的下载任务
+const activeDownloads = new Map<string, any>()
+
 // 发送下载进度到所有窗口
 function sendDownloadProgress(data: any) {
   const windows = BrowserWindow.getAllWindows()
@@ -1898,13 +1901,19 @@ ipcMain.handle('ytdlp:parse', async (_event, ...args) => {
     const isBilibili = url.includes('bilibili.com') || url.includes('b23.tv')
 
     const args: string[] = [
-      '--dump-json',
       '--no-playlist',
       '--no-check-certificates',
       '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
       '--add-header', 'Accept-Language:en-US,en;q=0.9',
       '--add-header', 'Accept:text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
     ]
+
+    // YouTube 使用 --print 获取完整格式列表（含 m3u8 多音轨），其他站点用 --dump-json
+    if (isYoutube) {
+      args.unshift('--print', '%()j')
+    } else {
+      args.unshift('--dump-json')
+    }
 
     // YouTube 需要 JS 运行时（优先使用 Node.js）
     if (isYoutube) {
@@ -1966,15 +1975,17 @@ ipcMain.handle('ytdlp:parse', async (_event, ...args) => {
         const info = JSON.parse(output)
 
         // 返回所有视频格式（B站/Instagram可能音视频分离，yt-dlp会自动合并）
-        let formats = info.formats
-          ?.filter((f: any) => {
+        let formats = (info.formats || [])
+          .filter((f: any) => {
             // 只要有视频就可以（音频可以单独下载后合并）
             const hasVideo = f.vcodec !== 'none' && f.vcodec !== null && f.vcodec !== undefined && f.vcodec !== ''
             // 接受所有常见视频格式
             const isVideoFormat = f.height && f.height > 0
-            return hasVideo && isVideoFormat
+            // 排除 m3u8 格式（多音轨用，不显示在视频格式列表中）
+            const isM3u8 = f.protocol && f.protocol.includes('m3u8')
+            return hasVideo && isVideoFormat && !isM3u8
           })
-          ?.map((f: any) => {
+          .map((f: any) => {
             // 获取文件大小：优先使用 filesize，其次是 filesize_approx
             // 对于 YouTube，还可以尝试通过码率和时长估算
             let filesize = f.filesize || f.filesize_approx || 0
@@ -1986,26 +1997,26 @@ ipcMain.handle('ytdlp:parse', async (_event, ...args) => {
             }
             
             return {
-              formatId: f.format_id,
+              formatId: f.format_id || '',
               quality: f.quality_label || f.resolution || f.format_note || `${f.height}p`,
               ext: f.ext || f.video_ext || 'mp4',
               filesize: filesize,
-              width: f.width,
-              height: f.height,
-              fps: f.fps,
+              width: f.width || 0,
+              height: f.height || 0,
+              fps: f.fps || 0,
               hasAudio: f.acodec && f.acodec !== 'none',
             }
           })
-          ?.filter((f: any) => f.quality && f.quality !== 'undefinedp')
+          .filter((f: any) => f.quality && f.quality !== 'undefinedp')
           // 添加码率信息用于排序和去重
-          ?.map((f: any) => ({
+          .map((f: any) => ({
             ...f,
             // 使用原始格式数据中的码率信息
-            _tbr: info.formats?.find((orig: any) => orig.format_id === f.formatId)?.tbr || 0,
-            _vbr: info.formats?.find((orig: any) => orig.format_id === f.formatId)?.vbr || 0,
+            _tbr: info.formats ? info.formats.find((orig: any) => orig.format_id === f.formatId)?.tbr || 0 : 0,
+            _vbr: info.formats ? info.formats.find((orig: any) => orig.format_id === f.formatId)?.vbr || 0 : 0,
           }))
           // 先按分辨率排序，再按码率排序，优先选择包含音频的格式
-          ?.sort((a: any, b: any) => {
+          .sort((a: any, b: any) => {
             const heightDiff = (b.height || 0) - (a.height || 0)
             if (heightDiff !== 0) return heightDiff
             // 相同分辨率优先选择包含音频的
@@ -2015,7 +2026,7 @@ ipcMain.handle('ytdlp:parse', async (_event, ...args) => {
             return (b._tbr || b._vbr || 0) - (a._tbr || a._vbr || 0)
           })
           // 去重：相同分辨率只保留码率最高的
-          ?.filter((f: any, index: number, self: any[]) => {
+          .filter((f: any, index: number, self: any[]) => {
             const firstIndex = self.findIndex((t: any) => t.quality === f.quality)
             if (index === firstIndex) return true
             // 如果已经有相同分辨率的，保留码率更高的
@@ -2029,25 +2040,144 @@ ipcMain.handle('ytdlp:parse', async (_event, ...args) => {
             }
             return false
           })
-          ?.filter((f: any) => !f._remove)
+          .filter((f: any) => !f._remove)
           // 清理临时字段
-          ?.map((f: any) => {
+          .map((f: any) => {
             const { _tbr, _vbr, _remove, ...rest } = f
             return rest
           })
+          || []
+        
+        // 提取音频轨道信息（YouTube多音轨）
+        const audioTracks: any[] = []
+        if (isYoutube && info.formats) {
+          const langNames: Record<string, string> = {
+            'ja': '日本語', 'en': 'English', 'zh': '中文(原始)', 'zh-Hans': '中文(简体)',
+            'zh-Hant': '中文(繁體)', 'zh-CN': '中文(简体)', 'zh-TW': '中文(繁體)',
+            'zh-HK': '中文(香港)', 'ko': '한국어', 'fr': 'Français', 'de': 'Deutsch',
+            'es': 'Español', 'pt': 'Português', 'ru': 'Русский', 'ar': 'العربية',
+            'hi': 'हिन्दी', 'th': 'ไทย', 'vi': 'Tiếng Việt', 'id': 'Bahasa Indonesia',
+            'it': 'Italiano', 'nl': 'Nederlands', 'pl': 'Polski', 'tr': 'Türkçe',
+          }
+
+          // 从 m3u8 格式中提取多音轨（m3u8 格式包含不同配音语言的视频+音频流）
+          const m3u8BestFormat: Record<string, { formatId: string; lang: string; height: number }> = {}
+          const m3u8Formats = info.formats.filter((f: any) =>
+            f.protocol && f.protocol.includes('m3u8') && f.language
+          )
+          for (const f of m3u8Formats) {
+            const lang = f.language
+            if (!lang) continue
+            const height = f.height || 0
+            if (!m3u8BestFormat[lang] || height > m3u8BestFormat[lang].height) {
+              m3u8BestFormat[lang] = { formatId: f.format_id, lang, height }
+            }
+          }
+
+          if (Object.keys(m3u8BestFormat).length > 1) {
+            // 有多个 m3u8 音轨语言，使用 m3u8 格式
+            const seenLangs = new Set<string>()
+            for (const [lang, best] of Object.entries(m3u8BestFormat)) {
+              const baseLang = lang.split('-')[0]
+              const key = baseLang
+              if (!seenLangs.has(key)) {
+                seenLangs.add(key)
+              }
+              audioTracks.push({
+                id: lang,
+                name: langNames[lang] || lang.toUpperCase(),
+                language: lang,
+                formatId: best.formatId,
+              })
+            }
+          } else {
+            // 没有 m3u8 多音轨，回退到音频格式提取
+            const langBestFormat: Record<string, { formatId: string; lang: string; abr: number }> = {}
+            const audioFormats = info.formats.filter((f: any) => f.vcodec === 'none' && f.acodec && f.acodec !== 'none')
+            for (const f of audioFormats) {
+              const lang = f.language
+              if (!lang) continue
+              const abr = f.abr || 0
+              if (!langBestFormat[lang] || abr > langBestFormat[lang].abr) {
+                langBestFormat[lang] = { formatId: f.format_id, lang, abr }
+              }
+            }
+            for (const [lang, best] of Object.entries(langBestFormat)) {
+              audioTracks.push({
+                id: lang,
+                name: langNames[lang] || lang.toUpperCase(),
+                language: lang,
+                formatId: best.formatId,
+              })
+            }
+          }
+
+          // 也检查 audio_tracks 字段补充名称
+          if (info.audio_tracks && Array.isArray(info.audio_tracks)) {
+            for (const at of info.audio_tracks) {
+              const existing = audioTracks.find(t => t.language === at.language)
+              if (existing && at.name) {
+                existing.name = at.name
+              }
+            }
+          }
+          console.log('[audioTracks] 发现', audioTracks.length, '个音轨:', audioTracks.map(t => `${t.name}(${t.language}, fmt=${t.formatId})`).join(', '))
+        }
+        
+        // 提取字幕信息
+        // subtitles 格式: { 'en': [{url, name, ext}] }
+        const subtitles = info.subtitles || {}
+        const subtitleList = Object.keys(subtitles).map((lang: string) => {
+          const subData = subtitles[lang]
+          const firstSub = Array.isArray(subData) ? subData[0] : subData
+          return {
+            language: lang || '',
+            name: firstSub?.name || lang || '',
+            url: firstSub?.url || '',
+          }
+        })
+        
+        // 提取纯音频格式（去重，只保留不同码率的）
+        const audioFormats = isYoutube && info.formats ? info.formats
+          .filter((f: any) => {
+            const isAudioOnly = f.vcodec === 'none' && f.acodec && f.acodec !== 'none'
+            return isAudioOnly
+          })
+          .map((f: any) => ({
+            formatId: f.format_id || '',
+            quality: f.abr ? `${f.abr}kbps` : (f.format_note || '音频'),
+            ext: f.ext || f.audio_ext || 'm4a',
+            filesize: f.filesize || f.filesize_approx || 0,
+            abr: f.abr || 0,
+            acodec: f.acodec || '',
+          }))
+          // 去重：相同码率只保留一个
+          .filter((f: any, index: number, self: any[]) => {
+            const firstIndex = self.findIndex((t: any) => t.abr === f.abr)
+            return index === firstIndex
+          })
+          .sort((a: any, b: any) => (b.abr || 0) - (a.abr || 0))
+          // 只保留前6个最高质量的音频格式
+          .slice(0, 6)
+        : []
         
         resolve({
-          id: info.id,
-          title: info.title,
-          description: info.description,
-          thumbnail: info.thumbnail,
-          duration: info.duration,
-          uploader: info.uploader,
-          webpageUrl: info.webpage_url,
+          id: info.id || '',
+          title: info.title || '未知标题',
+          description: info.description || '',
+          thumbnail: info.thumbnail || '',
+          duration: info.duration || 0,
+          uploader: info.uploader || '',
+          webpageUrl: info.webpage_url || url,
           formats: formats || [],
+          audioTracks: audioTracks || [],
+          subtitles: subtitleList || [],
+          audioFormats: audioFormats || [],
+          isYoutube: isYoutube === true,
         })
-      } catch (e) {
-        reject(new Error('解析响应失败'))
+      } catch (e: any) {
+        console.error('解析响应失败:', e)
+        reject(new Error('解析响应失败: ' + (e.message || '未知错误')))
       }
     })
   })
@@ -2163,6 +2293,9 @@ ipcMain.handle('ytdlp:download', async (_event, options: {
   taskId: string
   directUrl?: string
   cookiesFile?: string
+  downloadMode?: 'video' | 'audio' | 'subtitle'
+  audioTrack?: any
+  subtitles?: string[]
 }) => {
   return new Promise(async (resolve, reject) => {
     const outputDir = ensureDownloadDir(options.outputDir)
@@ -2188,19 +2321,62 @@ ipcMain.handle('ytdlp:download', async (_event, options: {
     const safeFilename = `video_${Date.now()}`
     const outputTemplate = path.join(outputDir, `${safeFilename}.%(ext)s`)
 
-    const formatSelector = `${options.formatId}+bestaudio[ext=m4a]/bestaudio/best`
+    // 判断下载模式
+    const isAudioOnly = options.downloadMode === 'audio'
+    const isSubtitleOnly = options.downloadMode === 'subtitle'
+    
+    // 构建格式选择器
+    let formatSelector: string
+    if (isSubtitleOnly) {
+      formatSelector = 'best'
+    } else if (isAudioOnly) {
+      formatSelector = options.formatId
+    } else {
+      if (options.audioTrack && options.audioTrack.formatId && options.audioTrack.formatId.includes('-')) {
+        formatSelector = options.audioTrack.formatId
+        console.log('[audioTrack] m3u8 format selector:', formatSelector)
+      } else if (options.audioTrack && options.audioTrack.language) {
+        formatSelector = `${options.formatId}+bestaudio[language^=${options.audioTrack.language}]/bestaudio/best`
+        console.log('[audioTrack] fallback format selector:', formatSelector)
+      } else {
+        formatSelector = `${options.formatId}+bestaudio[ext=m4a]/bestaudio/best`
+      }
+    }
 
     const args: string[] = [
       '-f', formatSelector,
       '-o', outputTemplate,
       '--newline',
       '--no-playlist',
-      '--no-continue',
-      '--merge-output-format', 'mp4',
-      '--ffmpeg-location', getFfmpegPath(),
-      '--postprocessor-args', 'FFmpegMetadata:-write_id3v1 1',
       '--encoding', 'utf-8',
     ]
+    
+    // 纯字幕下载模式
+    if (isSubtitleOnly) {
+      args.push('--skip-download')
+      args.push('--write-subs')
+      args.push('--sub-langs', options.subtitles?.join(',') || 'all')
+      args.push('--convert-subs', 'srt')
+    } else if (isAudioOnly) {
+      // 纯音频下载选项
+      args.push('-x', '--audio-format', 'mp3', '--audio-quality', '0')
+    } else {
+      args.push('--merge-output-format', 'mp4')
+    }
+    
+    args.push('--ffmpeg-location', getFfmpegPath())
+    
+    // 纯音频下载添加元数据
+    if (isAudioOnly) {
+      args.push('--postprocessor-args', 'FFmpegMetadata:-write_id3v1 1')
+    }
+    
+    // 字幕下载选项（与视频一起下载时）
+    if (!isSubtitleOnly && options.subtitles && options.subtitles.length > 0) {
+      args.push('--write-subs')
+      args.push('--sub-langs', options.subtitles.join(','))
+      args.push('--convert-subs', 'srt')
+    }
 
     // YouTube 需要 JS 运行时（优先使用 Node.js）
     if (isYoutube) {
@@ -2244,6 +2420,15 @@ ipcMain.handle('ytdlp:download', async (_event, options: {
     let downloadedFile = ''
     let lastProgress = 0
     let hasStarted = false
+    let isPaused = false
+    
+    // 存储下载任务
+    activeDownloads.set(options.taskId, {
+      child,
+      options,
+      status: 'downloading',
+      setPaused: (value: boolean) => { isPaused = value }
+    })
     
     // 立即发送开始下载事件
     sendDownloadProgress({
@@ -2345,6 +2530,15 @@ ipcMain.handle('ytdlp:download', async (_event, options: {
     })
     
     child.on('close', (code) => {
+      // 清理任务
+      activeDownloads.delete(options.taskId)
+      
+      // 如果是暂停导致的终止，不报错
+      if (isPaused) {
+        resolve({ filePath: downloadedFile, paused: true })
+        return
+      }
+      
       if (code !== 0) {
         reject(new Error('下载失败'))
         return
@@ -2434,14 +2628,21 @@ ipcMain.handle('history:add', async (_, record: any) => {
       const data = fs.readFileSync(historyFile, 'utf8')
       history = JSON.parse(data)
     }
-    history.unshift({
+    const newRecord = {
       ...record,
       id: Date.now().toString(),
       createdAt: new Date().toISOString(),
-    })
+    }
+    history.unshift(newRecord)
     // 只保留最近 100 条
     history = history.slice(0, 100)
     fs.writeFileSync(historyFile, JSON.stringify(history, null, 2))
+    
+    // 通知所有窗口历史记录已更新
+    BrowserWindow.getAllWindows().forEach(win => {
+      win.webContents.send('history:updated', history)
+    })
+    
     return true
   } catch (e) {
     return false
@@ -2450,16 +2651,53 @@ ipcMain.handle('history:add', async (_, record: any) => {
 
 ipcMain.handle('history:delete', async (_, id: string) => {
   try {
+    let history = []
     if (fs.existsSync(historyFile)) {
       const data = fs.readFileSync(historyFile, 'utf8')
-      let history = JSON.parse(data)
+      history = JSON.parse(data)
       history = history.filter((h: any) => h.id !== id)
       fs.writeFileSync(historyFile, JSON.stringify(history, null, 2))
     }
+    
+    // 通知所有窗口历史记录已更新
+    BrowserWindow.getAllWindows().forEach(win => {
+      win.webContents.send('history:updated', history)
+    })
+    
     return true
   } catch (e) {
     return false
   }
+})
+
+// 暂停下载
+ipcMain.handle('ytdlp:pauseDownload', async (_, taskId: string) => {
+  const download = activeDownloads.get(taskId)
+  if (download && download.child) {
+    // 标记为暂停状态
+    if (download.setPaused) {
+      download.setPaused(true)
+    }
+    
+    // Windows 上需要强制终止进程树
+    const { exec } = require('child_process')
+    const pid = download.child.pid
+    
+    // 先尝试正常终止
+    download.child.kill()
+    
+    // Windows 上使用 taskkill 终止进程树
+    if (process.platform === 'win32' && pid) {
+      exec(`taskkill /pid ${pid} /T /F`, (err: any) => {
+        if (err) {
+          console.log('Taskkill error:', err)
+        }
+      })
+    }
+    
+    return true
+  }
+  return false
 })
 
 // 获取带 referer 的图片（用于B站等需要referer的图片）

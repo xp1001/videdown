@@ -36,6 +36,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   
   // 应用
   app: {
+    getVersion: () => ipcRenderer.invoke('app:getVersion'),
     getDefaultDownloadDir: () => ipcRenderer.invoke('app:getDefaultDownloadDir'),
     fetchImage: (url: string, referer?: string) => ipcRenderer.invoke('app:fetchImage', url, referer),
   },
@@ -49,8 +50,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // YT-DLP 操作
   ytdlp: {
     parse: (url: string, cookiesFile?: string) => ipcRenderer.invoke('ytdlp:parse', url, cookiesFile),
-    download: (options: { url: string; formatId: string; outputDir: string; filename?: string; taskId: string; directUrl?: string; cookiesFile?: string }) => 
+    download: (options: { url: string; formatId: string; outputDir: string; filename?: string; taskId: string; directUrl?: string; cookiesFile?: string; downloadMode?: 'video' | 'audio'; audioTrack?: any; subtitles?: string[] }) => 
       ipcRenderer.invoke('ytdlp:download', options),
+    pauseDownload: (taskId: string) => ipcRenderer.invoke('ytdlp:pauseDownload', taskId),
   },
   
   // 下载进度监听
@@ -67,6 +69,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
     get: () => ipcRenderer.invoke('history:get'),
     add: (record: any) => ipcRenderer.invoke('history:add', record),
     delete: (id: string) => ipcRenderer.invoke('history:delete', id),
+    onUpdated: (callback: (history: any[]) => void) => {
+      const handler = (_: any, data: any[]) => callback(data)
+      ipcRenderer.on('history:updated', handler)
+      return () => {
+        ipcRenderer.off('history:updated', handler)
+      }
+    },
   },
   
   // 更新检查
