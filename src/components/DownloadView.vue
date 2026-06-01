@@ -181,7 +181,7 @@
                   :key="format.formatId"
                   class="flex items-center justify-between p-2.5 rounded-md cursor-pointer transition-colors"
                   :class="selectedFormat?.formatId === format.formatId ? 'bg-surface-container-highest/50 border border-primary/30 hover:bg-primary-container/20' : 'bg-surface-container-lowest border border-outline-variant/20 hover:border-primary/40'"
-                  @click="selectedFormat = format"
+                  @click="selectVideoFormat(format)"
                 >
                   <div class="flex items-center gap-2">
                     <div 
@@ -195,15 +195,81 @@
               </div>
             </div>
             
+            <!-- YouTube Audio Formats -->
+            <div v-if="videoInfo.isYoutube === true && videoInfo.audioFormats?.length" class="flex flex-col gap-2">
+              <span class="text-[11px] font-bold text-outline uppercase tracking-wider">纯音频格式 - 共 {{ videoInfo.audioFormats.length }} 个</span>
+              <div class="grid grid-cols-2 gap-2">
+                <label 
+                  v-for="format in videoInfo.audioFormats" 
+                  :key="format.formatId"
+                  class="flex items-center justify-between p-2.5 rounded-md cursor-pointer transition-colors"
+                  :class="selectedAudioFormat?.formatId === format.formatId ? 'bg-surface-container-highest/50 border border-primary/30 hover:bg-primary-container/20' : 'bg-surface-container-lowest border border-outline-variant/20 hover:border-primary/40'"
+                  @click="selectAudioFormat(format)"
+                >
+                  <div class="flex items-center gap-2">
+                    <div 
+                      class="size-4 rounded-full border-4 flex-shrink-0"
+                      :class="selectedAudioFormat?.formatId === format.formatId ? 'border-primary bg-surface' : 'border-outline-variant bg-surface'"
+                    />
+                    <span class="text-xs font-semibold" :class="selectedAudioFormat?.formatId === format.formatId ? 'text-on-surface' : 'text-on-surface font-medium'">{{ format.quality }}</span>
+                  </div>
+                  <span class="text-[10px] font-mono text-on-surface-variant">{{ format.filesize ? formatFileSize(format.filesize) : '未知大小' }}</span>
+                </label>
+              </div>
+            </div>
+            
+            <!-- YouTube Audio Tracks -->
+            <div v-if="videoInfo.isYoutube === true && videoInfo.audioTracks?.length" class="flex flex-col gap-2">
+              <span class="text-[11px] font-bold text-outline uppercase tracking-wider">音频轨道 - 共 {{ videoInfo.audioTracks.length }} 个</span>
+              <div class="grid grid-cols-2 gap-2">
+                <label 
+                  v-for="track in videoInfo.audioTracks" 
+                  :key="track.id"
+                  class="flex items-center justify-between p-2.5 rounded-md cursor-pointer transition-colors"
+                  :class="selectedAudioTrack?.id === track.id ? 'bg-surface-container-highest/50 border border-primary/30 hover:bg-primary-container/20' : 'bg-surface-container-lowest border border-outline-variant/20 hover:border-primary/40'"
+                  @click="selectAudioTrack(track)"
+                >
+                  <div class="flex items-center gap-2">
+                    <div 
+                      class="size-4 rounded-full border-4 flex-shrink-0"
+                      :class="selectedAudioTrack?.id === track.id ? 'border-primary bg-surface' : 'border-outline-variant bg-surface'"
+                    />
+                    <span class="text-xs font-semibold" :class="selectedAudioTrack?.id === track.id ? 'text-on-surface' : 'text-on-surface font-medium'">{{ track.name }}</span>
+                  </div>
+                  <span class="text-[10px] font-mono text-on-surface-variant">{{ track.language }}</span>
+                </label>
+              </div>
+            </div>
+            
+            <!-- YouTube Subtitles -->
+            <div v-if="videoInfo.isYoutube === true && videoInfo.subtitles?.length" class="flex flex-col gap-2">
+              <span class="text-[11px] font-bold text-outline uppercase tracking-wider">字幕 - 共 {{ videoInfo.subtitles.length }} 个</span>
+              <div class="flex flex-wrap gap-2">
+                <label 
+                  v-for="sub in videoInfo.subtitles" 
+                  :key="sub.language"
+                  class="flex items-center gap-2 px-3 py-2 rounded-md cursor-pointer transition-colors"
+                  :class="selectedSubtitles.includes(sub.language) ? 'bg-surface-container-highest/50 border border-primary/30 hover:bg-primary-container/20' : 'bg-surface-container-lowest border border-outline-variant/20 hover:border-primary/40'"
+                  @click="selectSubtitle(sub.language)"
+                >
+                  <div 
+                    class="size-3 rounded-sm border-2 flex-shrink-0"
+                    :class="selectedSubtitles.includes(sub.language) ? 'border-primary bg-primary' : 'border-outline-variant bg-surface'"
+                  />
+                  <span class="text-xs font-semibold" :class="selectedSubtitles.includes(sub.language) ? 'text-on-surface' : 'text-on-surface font-medium'">{{ sub.name }}</span>
+                </label>
+              </div>
+            </div>
+            
             <!-- Download Button -->
             <button 
               class="w-full flex items-center justify-center gap-2 rounded-xl h-12 font-headline font-bold text-base shadow-md hover:shadow-xl hover:-translate-y-0.5 transition-all duration-300 mt-4 text-on-primary-fixed gradient-btn-orange"
-              :disabled="!selectedFormat || isDownloading"
+              :disabled="(!selectedFormat && !selectedAudioFormat && selectedSubtitles.length === 0) || isDownloading"
               @click="startDownload"
             >
               <MaterialIcon v-if="isDownloading" name="sync" :size="24" class="animate-spin" />
               <MaterialIcon v-else name="download" :size="24" />
-              <span>{{ isDownloading ? '准备下载...' : '立即下载所选资源' }}</span>
+              <span>{{ isDownloading ? '正在下载...' : (downloadMode === 'audio' ? '下载纯音频' : (downloadMode === 'subtitle' ? '下载字幕' : '立即下载所选资源')) }}</span>
             </button>
           </div>
         </div>
@@ -265,7 +331,8 @@
             'bg-surface-container-lowest shadow-sm border-outline-variant/10': task.status === 'downloading' || task.status === 'merging',
             'bg-surface-container-lowest border-outline-variant/10 opacity-70': task.status === 'pending',
             'bg-surface-container-highest/60 border-outline-variant/5': task.status === 'completed',
-            'bg-error-container/10 border-error/20': task.status === 'error'
+            'bg-error-container/10 border-error/20': task.status === 'error',
+            'bg-amber-container/20 border-amber/30': task.status === 'paused'
           }"
         >
           <div class="flex gap-3">
@@ -305,14 +372,46 @@
                   <span>
                     <span v-if="task.status === 'merging'" class="text-primary">{{ task.statusMessage || '正在合并音视频...' }}</span>
                     <span v-else-if="task.speed">{{ task.speed }} - ETA {{ task.eta }}</span>
-                    <span v-else>准备下载...</span>
+                    <span v-else>正在下载...</span>
                   </span>
-                  <span class="font-bold text-primary">{{ Math.round(task.progress || 0) }}%</span>
+                  <div class="flex items-center gap-2">
+                    <button
+                      class="text-on-surface-variant hover:text-amber transition-colors"
+                      @click="pauseTask(task.id)"
+                      title="暂停下载"
+                    >
+                      <MaterialIcon name="pause" :size="14" />
+                    </button>
+                    <span class="font-bold text-primary">{{ Math.round(task.progress || 0) }}%</span>
+                  </div>
                 </div>
                 <div class="h-1.5 w-full bg-surface-container-highest rounded-full overflow-hidden mt-1">
                   <div 
                     class="h-full bg-primary-fixed rounded-full transition-all duration-300"
                     :class="{ 'animate-pulse': task.status === 'merging' }"
+                    :style="{ width: (task.progress || 0) + '%' }"
+                  />
+                </div>
+              </template>
+              
+              <!-- Paused Status -->
+              <template v-else-if="task.status === 'paused'">
+                <div class="flex items-center justify-between text-[10px] text-on-surface-variant font-mono">
+                  <span class="text-amber">已暂停</span>
+                  <div class="flex items-center gap-2">
+                    <button
+                      class="text-on-surface-variant hover:text-primary transition-colors"
+                      @click="resumeTask(task)"
+                      title="继续下载"
+                    >
+                      <MaterialIcon name="play_arrow" :size="14" />
+                    </button>
+                    <span class="font-bold text-amber">{{ Math.round(task.progress || 0) }}%</span>
+                  </div>
+                </div>
+                <div class="h-1.5 w-full bg-surface-container-highest rounded-full overflow-hidden mt-1">
+                  <div 
+                    class="h-full bg-amber rounded-full transition-all duration-300"
                     :style="{ width: (task.progress || 0) + '%' }"
                   />
                 </div>
@@ -368,7 +467,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import MaterialIcon from './icons/MaterialIcon.vue'
-import type { VideoInfo, VideoFormat, DownloadTask } from '../types'
+import type { VideoInfo, VideoFormat, DownloadTask, AudioFormat, AudioTrack } from '../types'
 
 // URL Input
 const url = ref('')
@@ -399,8 +498,62 @@ const isParsing = ref(false)
 const parseProgress = ref(0)
 const videoInfo = ref<VideoInfo | null>(null)
 const selectedFormat = ref<VideoFormat | null>(null)
+const selectedAudioFormat = ref<AudioFormat | null>(null)
+const selectedAudioTrack = ref<AudioTrack | null>(null)
+const selectedSubtitles = ref<string[]>([])
+const downloadMode = ref<'video' | 'audio' | 'subtitle'>('video')
 const isDownloading = ref(false)
 const urlInput = ref<HTMLTextAreaElement | null>(null)
+
+// 选择视频格式（互斥：取消音频格式和字幕选择，保留音频轨道）
+function selectVideoFormat(format: VideoFormat) {
+  selectedFormat.value = format
+  downloadMode.value = 'video'
+  // 取消音频格式选择
+  selectedAudioFormat.value = null
+  // 取消字幕选择
+  selectedSubtitles.value = []
+}
+
+// 选择音频格式（互斥：取消视频格式、音频轨道和字幕选择）
+function selectAudioFormat(format: AudioFormat) {
+  selectedAudioFormat.value = format
+  downloadMode.value = 'audio'
+  // 取消视频格式选择
+  selectedFormat.value = null
+  // 取消音频轨道
+  selectedAudioTrack.value = null
+  // 取消字幕选择
+  selectedSubtitles.value = []
+}
+
+// 选择音频轨道（辅助选项，不取消视频格式，但取消纯音频和字幕）
+function selectAudioTrack(track: AudioTrack) {
+  selectedAudioTrack.value = track
+  // 取消纯音频格式和字幕
+  selectedAudioFormat.value = null
+  selectedSubtitles.value = []
+  // 如果没有选视频格式，自动选第一个
+  if (!selectedFormat.value && videoInfo.value?.formats?.length) {
+    selectedFormat.value = videoInfo.value.formats[0]
+  }
+  downloadMode.value = 'video'
+}
+
+// 选择字幕（互斥：取消视频和音频选择）
+function selectSubtitle(language: string) {
+  const index = selectedSubtitles.value.indexOf(language)
+  if (index > -1) {
+    selectedSubtitles.value.splice(index, 1)
+  } else {
+    selectedSubtitles.value = [language] // 只保留当前选中的字幕
+  }
+  // 取消视频和音频选择
+  selectedFormat.value = null
+  selectedAudioFormat.value = null
+  selectedAudioTrack.value = null
+  downloadMode.value = 'subtitle'
+}
 
 // Context Menu
 const contextMenuVisible = ref(false)
@@ -493,7 +646,7 @@ const platforms = [
 
 // Computed
 const activeTaskCount = computed(() => {
-  return downloadTasks.value.filter(t => t.status === 'downloading' || t.status === 'pending' || t.status === 'merging').length
+  return downloadTasks.value.filter(t => t.status === 'downloading' || t.status === 'pending' || t.status === 'merging' || t.status === 'paused').length
 })
 
 const storageInfo = computed(() => {
@@ -603,6 +756,20 @@ async function parseVideo() {
     // Auto select best quality
     if (info.formats && info.formats.length > 0) {
       selectedFormat.value = info.formats[0]
+      downloadMode.value = 'video'
+    } else if (info.audioFormats && info.audioFormats.length > 0) {
+      // 如果没有视频格式但有音频格式，自动选择音频模式
+      selectedAudioFormat.value = info.audioFormats[0]
+      downloadMode.value = 'audio'
+    }
+    
+    // Auto select original language audio track (default/first track)
+    if (info.audioTracks && info.audioTracks.length > 0) {
+      // 优先选择默认轨道或第一个轨道（通常是原语言）
+      const defaultTrack = info.audioTracks.find((t: AudioTrack) => t.name?.toLowerCase().includes('default') || t.language === 'original')
+      selectedAudioTrack.value = defaultTrack || info.audioTracks[0]
+    } else {
+      selectedAudioTrack.value = null
     }
     parseProgress.value = 100
   } catch (e: any) {
@@ -650,21 +817,63 @@ async function fetchBilibiliThumbnail(thumbnailUrl: string) {
 }
 
 async function startDownload() {
-  if (!videoInfo.value || !selectedFormat.value || isDownloading.value) return
+  if (!videoInfo.value || isDownloading.value) return
+  if (downloadMode.value === 'video' && !selectedFormat.value) return
+  if (downloadMode.value === 'audio' && !selectedAudioFormat.value) return
+  if (downloadMode.value === 'subtitle' && selectedSubtitles.value.length === 0) return
   
   isDownloading.value = true
   
   const taskId = Date.now().toString()
+  
+  // 字幕下载模式
+  if (downloadMode.value === 'subtitle') {
+    const task: DownloadTask = {
+      id: taskId,
+      url: url.value,
+      videoInfo: videoInfo.value,
+      selectedFormat: {
+        formatId: 'subtitle',
+        quality: '字幕',
+        ext: 'srt',
+        filesize: 0
+      },
+      outputDir: downloadDir.value,
+      status: 'pending',
+      progress: 0,
+      createdAt: new Date().toISOString(),
+    }
+    
+    // 存储额外的下载选项
+    ;(task as any).downloadMode = 'subtitle'
+    ;(task as any).selectedSubtitles = [...selectedSubtitles.value]
+    
+    downloadTasks.value.unshift(task)
+    
+    // Start download
+    processDownload(task)
+    
+    isDownloading.value = false
+    return
+  }
+  
   const task: DownloadTask = {
     id: taskId,
     url: url.value,
     videoInfo: videoInfo.value,
-    selectedFormat: selectedFormat.value,
+    selectedFormat: downloadMode.value === 'audio' && selectedAudioFormat.value
+      ? { ...selectedAudioFormat.value, quality: selectedAudioFormat.value.quality, ext: selectedAudioFormat.value.ext }
+      : selectedFormat.value!,
     outputDir: downloadDir.value,
     status: 'pending',
     progress: 0,
     createdAt: new Date().toISOString(),
   }
+  
+  // 存储额外的下载选项
+  ;(task as any).downloadMode = downloadMode.value
+  ;(task as any).selectedAudioTrack = selectedAudioTrack.value ? { ...selectedAudioTrack.value } : null
+  ;(task as any).selectedSubtitles = []
   
   downloadTasks.value.unshift(task)
   
@@ -672,25 +881,38 @@ async function startDownload() {
   processDownload(task)
   
   isDownloading.value = false
-  
-  // Reset for next download
-  url.value = ''
-  videoInfo.value = null
-  selectedFormat.value = null
-  hasParsed.value = false
 }
+
+// 存储每个任务的进度监听器清理函数
+const taskProgressCleanups = new Map<string, () => void>()
 
 async function processDownload(task: DownloadTask) {
   // 找到任务在数组中的索引，确保响应式更新
   const taskIndex = downloadTasks.value.findIndex(t => t.id === task.id)
   if (taskIndex === -1) return
   
+  // 如果任务已经在下载中，不要重复启动
+  if (downloadTasks.value[taskIndex].status === 'downloading' || downloadTasks.value[taskIndex].status === 'merging') {
+    return
+  }
+  
   // 更新状态为下载中
   downloadTasks.value[taskIndex].status = 'downloading'
+  
+  // 如果已经有监听器，先清理
+  if (taskProgressCleanups.has(task.id)) {
+    taskProgressCleanups.get(task.id)!()
+    taskProgressCleanups.delete(task.id)
+  }
   
   // 每个任务有自己的进度监听器
   const cleanup = window.electronAPI.onDownloadProgress((data: any) => {
     if (data.taskId === task.id) {
+      // 如果任务已暂停，忽略进度更新（除了完成状态）
+      if (pausedTasks.has(task.id) && data.status !== 'completed') {
+        return
+      }
+      
       // 通过索引更新，确保响应式
       const idx = downloadTasks.value.findIndex(t => t.id === task.id)
       if (idx !== -1) {
@@ -701,6 +923,7 @@ async function processDownload(task: DownloadTask) {
         } else if (data.status === 'completed') {
           downloadTasks.value[idx].status = 'completed'
           downloadTasks.value[idx].progress = 100
+          pausedTasks.delete(task.id)
         } else {
           downloadTasks.value[idx].progress = data.percent || 0
           downloadTasks.value[idx].totalSize = data.totalSize
@@ -710,6 +933,9 @@ async function processDownload(task: DownloadTask) {
       }
     }
   })
+  
+  // 存储清理函数
+  taskProgressCleanups.set(task.id, cleanup)
   
   try {
     // 检查是否有直接下载链接（抖音/快手等通过 Puppeteer 解析的平台）
@@ -722,15 +948,28 @@ async function processDownload(task: DownloadTask) {
     const settings = JSON.parse(localStorage.getItem('settings') || '{}')
     const cookiesFile = settings.cookiesFile || ''
 
-    const result = await window.electronAPI.ytdlp.download({
+    const downloadOptions: any = {
       url: task.url,
       formatId: task.selectedFormat.formatId,
       outputDir: task.outputDir,
       taskId: task.id,
-      directUrl: useDirectDownload ? directUrl : undefined,
-      filename: useDirectDownload ? `${sanitizeFilename(task.videoInfo.title).slice(0, 50)}_${task.selectedFormat.quality}.mp4` : undefined,
+      directUrl: useDirectDownload && directUrl ? directUrl : undefined,
+      filename: useDirectDownload && directUrl ? `${sanitizeFilename(task.videoInfo.title).slice(0, 50)}_${task.selectedFormat.quality}.mp4` : undefined,
       cookiesFile: cookiesFile,
-    })
+    }
+    
+    // 添加 YouTube 特有选项
+    if ((task as any).downloadMode === 'audio') {
+      downloadOptions.downloadMode = 'audio'
+    }
+    if ((task as any).selectedAudioTrack) {
+      downloadOptions.audioTrack = { ...(task as any).selectedAudioTrack }
+    }
+    if ((task as any).selectedSubtitles?.length > 0) {
+      downloadOptions.subtitles = (task as any).selectedSubtitles
+    }
+    
+    const result = await window.electronAPI.ytdlp.download(downloadOptions)
 
     // 更新任务状态到数组（确保响应式）
     const finalIdx = downloadTasks.value.findIndex(t => t.id === task.id)
@@ -773,7 +1012,36 @@ async function processDownload(task: DownloadTask) {
     }
   } finally {
     // 清理监听器
-    cleanup()
+    if (taskProgressCleanups.has(task.id)) {
+      taskProgressCleanups.get(task.id)!()
+      taskProgressCleanups.delete(task.id)
+    }
+  }
+}
+
+// 存储每个任务的暂停状态
+const pausedTasks = new Set<string>()
+
+function pauseTask(taskId: string) {
+  const taskIndex = downloadTasks.value.findIndex(t => t.id === taskId)
+  if (taskIndex !== -1) {
+    downloadTasks.value[taskIndex].status = 'paused'
+    downloadTasks.value[taskIndex].speed = undefined
+    downloadTasks.value[taskIndex].eta = undefined
+    pausedTasks.add(taskId)
+    // 通知主进程暂停下载
+    window.electronAPI?.ytdlp?.pauseDownload?.(taskId)
+  }
+}
+
+function resumeTask(task: DownloadTask) {
+  const taskIndex = downloadTasks.value.findIndex(t => t.id === task.id)
+  if (taskIndex !== -1) {
+    downloadTasks.value[taskIndex].status = 'downloading'
+    // 从暂停集合中移除
+    pausedTasks.delete(task.id)
+    // 重新启动下载
+    processDownload(downloadTasks.value[taskIndex])
   }
 }
 
@@ -795,18 +1063,38 @@ async function selectDownloadDir() {
   const dir = await window.electronAPI.dialog.selectFolder()
   if (dir) {
     downloadDir.value = dir
-    localStorage.setItem('downloadDir', dir)
+    // 同步保存到 settings
+    const savedSettings = localStorage.getItem('settings')
+    const settings = savedSettings ? JSON.parse(savedSettings) : {}
+    settings.downloadDir = dir
+    localStorage.setItem('settings', JSON.stringify(settings))
+  }
+}
+
+// 加载下载目录
+async function loadDownloadDir() {
+  const savedSettings = localStorage.getItem('settings')
+  if (savedSettings) {
+    const settings = JSON.parse(savedSettings)
+    if (settings.downloadDir) {
+      downloadDir.value = settings.downloadDir
+    } else {
+      downloadDir.value = await window.electronAPI.app.getDefaultDownloadDir()
+    }
+  } else {
+    downloadDir.value = await window.electronAPI.app.getDefaultDownloadDir()
   }
 }
 
 // Initialize
 onMounted(async () => {
-  // Load download directory
-  const savedDir = localStorage.getItem('downloadDir')
-  if (savedDir) {
-    downloadDir.value = savedDir
-  } else {
-    downloadDir.value = await window.electronAPI.app.getDefaultDownloadDir()
-  }
+  await loadDownloadDir()
+  
+  // 监听标签切换事件，切换回下载页时重新加载设置
+  window.addEventListener('tab-changed', async (e: any) => {
+    if (e.detail === 'download') {
+      await loadDownloadDir()
+    }
+  })
 })
 </script>
