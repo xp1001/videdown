@@ -2344,12 +2344,16 @@ ipcMain.handle('ytdlp:download', async (_event, options: {
     }
 
     const args: string[] = [
-      '-f', formatSelector,
       '-o', outputTemplate,
       '--newline',
       '--no-playlist',
       '--encoding', 'utf-8',
     ]
+    
+    // 纯字幕下载模式不需要 -f 参数
+    if (!isSubtitleOnly) {
+      args.unshift('-f', formatSelector)
+    }
     
     // 纯字幕下载模式
     if (isSubtitleOnly) {
@@ -2421,6 +2425,7 @@ ipcMain.handle('ytdlp:download', async (_event, options: {
     let lastProgress = 0
     let hasStarted = false
     let isPaused = false
+    let errorOutput = ''
     
     // 存储下载任务
     activeDownloads.set(options.taskId, {
@@ -2511,6 +2516,7 @@ ipcMain.handle('ytdlp:download', async (_event, options: {
     
     child.stderr.on('data', (data) => {
       const line = data.toString()
+      errorOutput += line
       
       // 某些进度信息在 stderr 中
       const percentMatch = line.match(/(\d+\.?\d*)%/)
@@ -2540,8 +2546,32 @@ ipcMain.handle('ytdlp:download', async (_event, options: {
       }
       
       if (code !== 0) {
-        reject(new Error('下载失败'))
+        // 提取最后一行非空错误信息
+        const errorLines = errorOutput.split('\n').filter((l: string) => l.trim())
+        const lastError = errorLines.length > 0 ? errorLines[errorLines.length - 1].trim() : ''
+        // 检查是否是 HTTP 429 错误
+        if (lastError.includes('429') || lastError.includes('Too Many Requests')) {
+          reject(new Error('YouTube 请求过于频繁，请等待几分钟后重试 (HTTP 429)'))
+        } else {
+          reject(new Error(lastError || '下载失败'))
+        }
         return
+      }
+      
+      // 字幕下载模式：构造字幕文件路径（yt-dlp 先写 .vtt 再转 .srt）
+      if (isSubtitleOnly && !downloadedFile) {
+        const firstLang = options.subtitles?.[0] || 'en'
+        const basePath = outputTemplate.replace(/\.%(ext)s/, '')
+        // 尝试 .srt（转换后）或 .vtt（原始）
+        const srtPath = `${basePath}.${firstLang}.srt`
+        const vttPath = `${basePath}.${firstLang}.vtt`
+        if (fs.existsSync(srtPath)) {
+          downloadedFile = srtPath
+        } else if (fs.existsSync(vttPath)) {
+          downloadedFile = vttPath
+        } else {
+          downloadedFile = srtPath
+        }
       }
       
       // 如果没有获取到合并后的路径，手动构造 mp4 路径
