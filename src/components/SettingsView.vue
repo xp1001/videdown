@@ -253,15 +253,16 @@ function saveSettings() {
 }
 
 async function loadSettings() {
-  // Load download dir
-  const defaultDir = await window.electronAPI.app.getDefaultDownloadDir()
-  settings.value.downloadDir = defaultDir
-  
-  // Load saved settings
+  // Load saved settings first
   const saved = localStorage.getItem('settings')
   if (saved) {
     const parsed = JSON.parse(saved)
     settings.value = { ...settings.value, ...parsed }
+  }
+  
+  // If no download dir set, use default
+  if (!settings.value.downloadDir) {
+    settings.value.downloadDir = await window.electronAPI.app.getDefaultDownloadDir()
   }
   
   // Check YT-DLP version
