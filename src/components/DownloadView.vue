@@ -944,9 +944,10 @@ async function processDownload(task: DownloadTask) {
     const isKuaishou = task.url.includes('kuaishou.com') || task.url.includes('v.kuaishou.com')
     const useDirectDownload = isDouyin || isKuaishou
     
-    // 获取 cookies 文件路径
+    // 获取 cookies 文件路径和文件名模板
     const settings = JSON.parse(localStorage.getItem('settings') || '{}')
     const cookiesFile = settings.cookiesFile || ''
+    const filenameTemplate = settings.filenameTemplate || '%(title)s'
 
     const downloadOptions: any = {
       url: task.url,
@@ -956,6 +957,7 @@ async function processDownload(task: DownloadTask) {
       directUrl: useDirectDownload && directUrl ? directUrl : undefined,
       filename: useDirectDownload && directUrl ? `${sanitizeFilename(task.videoInfo.title).slice(0, 50)}_${task.selectedFormat.quality}.mp4` : undefined,
       cookiesFile: cookiesFile,
+      filenameTemplate: filenameTemplate,
     }
     
     // 添加 YouTube 特有选项
