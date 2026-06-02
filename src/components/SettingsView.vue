@@ -1,6 +1,6 @@
 <template>
-  <div class="flex-1 flex flex-col bg-surface p-8 overflow-hidden">
-    <div class="max-w-2xl mx-auto w-full flex flex-col gap-6">
+  <div class="flex-1 flex flex-col bg-surface p-8 overflow-y-auto">
+    <div class="max-w-2xl mx-auto w-full flex flex-col gap-6 pb-8">
       <!-- Header -->
       <div>
         <h1 class="font-headline text-2xl font-bold leading-tight text-on-surface">设置</h1>
@@ -109,77 +109,6 @@
               />
               <span class="text-sm text-on-surface">{{ quality.label }}</span>
             </label>
-          </div>
-        </div>
-        
-        <!-- About -->
-        <div class="bg-surface-container-low rounded-lg p-6 border border-outline-variant/10">
-          <h2 class="font-headline text-base font-bold text-on-surface mb-4 flex items-center gap-2">
-            <MaterialIcon name="info" :size="20" class="text-primary" />
-            关于
-          </h2>
-          
-          <div class="flex flex-col gap-4 text-sm text-on-surface-variant">
-            <!-- App Info -->
-            <div class="flex items-center gap-4">
-              <div class="w-16 h-16 rounded-xl bg-primary/10 flex items-center justify-center">
-                <MaterialIcon name="download" :size="32" class="text-primary" />
-              </div>
-              <div>
-                <h3 class="text-lg font-bold text-on-surface">Videdown</h3>
-                <p class="text-xs">开源视频下载工具</p>
-                <p class="text-xs mt-1">版本 1.0.0</p>
-              </div>
-            </div>
-            
-            <!-- Description -->
-            <p class="text-xs leading-relaxed">
-              Videdown 是一款基于 YT-DLP 的开源多平台视频下载工具，支持抖音、小红书、B站、YouTube、Instagram 等平台。
-            </p>
-            
-            <!-- Links -->
-            <div class="flex flex-col gap-2">
-              <a 
-                href="https://github.com/yourusername/videdown" 
-                target="_blank"
-                class="flex items-center gap-2 px-3 py-2 rounded-lg bg-surface-container-highest hover:bg-surface-variant transition-colors"
-              >
-                <MaterialIcon name="code" :size="18" class="text-on-surface" />
-                <span class="text-sm text-on-surface">GitHub 仓库</span>
-                <MaterialIcon name="open_in_new" :size="14" class="text-on-surface-variant ml-auto" />
-              </a>
-              <a 
-                href="https://github.com/yourusername/videdown/issues" 
-                target="_blank"
-                class="flex items-center gap-2 px-3 py-2 rounded-lg bg-surface-container-highest hover:bg-surface-variant transition-colors"
-              >
-                <MaterialIcon name="bug_report" :size="18" class="text-on-surface" />
-                <span class="text-sm text-on-surface">问题反馈</span>
-                <MaterialIcon name="open_in_new" :size="14" class="text-on-surface-variant ml-auto" />
-              </a>
-            </div>
-            
-            <!-- License -->
-            <div class="pt-3 border-t border-outline-variant/20">
-              <div class="flex items-center justify-between">
-                <span class="text-xs">开源协议</span>
-                <span class="text-xs font-medium text-primary bg-primary/10 px-2 py-1 rounded">MIT License</span>
-              </div>
-              <p class="text-[10px] mt-2 leading-relaxed opacity-70">
-                本软件基于 MIT 协议开源，您可以自由使用、修改和分发。
-              </p>
-            </div>
-            
-            <!-- Dependencies -->
-            <div class="pt-3 border-t border-outline-variant/20">
-              <p class="text-xs font-medium text-on-surface mb-2">依赖组件</p>
-              <div class="flex flex-wrap gap-2">
-                <span class="text-[10px] px-2 py-1 bg-surface-container-highest rounded">YT-DLP {{ ytdlpVersion }}</span>
-                <span class="text-[10px] px-2 py-1 bg-surface-container-highest rounded">Electron</span>
-                <span class="text-[10px] px-2 py-1 bg-surface-container-highest rounded">Vue 3</span>
-                <span class="text-[10px] px-2 py-1 bg-surface-container-highest rounded">FFmpeg</span>
-              </div>
-            </div>
           </div>
         </div>
         
