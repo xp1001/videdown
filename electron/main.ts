@@ -2296,6 +2296,7 @@ ipcMain.handle('ytdlp:download', async (_event, options: {
   downloadMode?: 'video' | 'audio' | 'subtitle'
   audioTrack?: any
   subtitles?: string[]
+  filenameTemplate?: string
 }) => {
   return new Promise(async (resolve, reject) => {
     const outputDir = ensureDownloadDir(options.outputDir)
@@ -2318,8 +2319,8 @@ ipcMain.handle('ytdlp:download', async (_event, options: {
     const isYoutube = options.url.includes('youtube.com') || options.url.includes('youtu.be')
     const isBilibili = options.url.includes('bilibili.com') || options.url.includes('b23.tv')
 
-    const safeFilename = `video_${Date.now()}`
-    const outputTemplate = path.join(outputDir, `${safeFilename}.%(ext)s`)
+    const userTemplate = options.filenameTemplate || '%(title)s'
+    const outputTemplate = path.join(outputDir, `${userTemplate}.%(ext)s`)
 
     // 判断下载模式
     const isAudioOnly = options.downloadMode === 'audio'
