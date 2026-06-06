@@ -1,7 +1,7 @@
 import { app, BrowserWindow, ipcMain, dialog, shell, Menu } from 'electron'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
-import { spawn } from 'node:child_process'
+import { spawn, execSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import puppeteer from 'puppeteer-core'
@@ -71,23 +71,18 @@ function checkJsRuntime(): { available: boolean; path: string | null; name: stri
   const platform = process.platform
   const isWin = platform === 'win32'
   
-  // 1. 首先尝试 Node.js
-  const nodeName = isWin ? 'node.exe' : 'node'
-  const nodePaths = [
-    nodeName,
-    isWin ? 'C:\\Program Files\\nodejs\\node.exe' : '/usr/bin/node',
-    isWin ? 'C:\\Program Files (x86)\\nodejs\\node.exe' : '/usr/local/bin/node',
-    isWin ? 'D:\\NodeJs\\node.exe' : '',
-    isWin ? 'E:\\NodeJs\\node.exe' : '',
-  ]
-  
-  for (const p of nodePaths) {
-    try {
-      if (fs.existsSync(p)) {
-        return { available: true, path: p, name: 'Node.js' }
-      }
-    } catch {
+  // 1. 首先尝试 Node.js：通过系统命令动态查找，不依赖硬编码路径
+  try {
+    const findCmd = isWin ? 'where node.exe' : 'which node'
+    // console.log('[checkJsRuntime] PATH:', process.env.PATH)
+    const result = execSync(findCmd, { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }).trim()
+    // console.log('[checkJsRuntime] where result:', result)
+    const nodePath = result.split(/\r?\n/)[0].trim()
+    if (nodePath && fs.existsSync(nodePath)) {
+      return { available: true, path: nodePath, name: 'Node.js' }
     }
+  } catch (e) {
+    console.log('[checkJsRuntime] where failed:', e)
   }
   
   // 2. 尝试 Deno
