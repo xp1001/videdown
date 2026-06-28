@@ -24,9 +24,11 @@ function getYtDlpPath(): string {
   const ytDlpName = isWin ? 'yt-dlp.exe' : 'yt-dlp'
 
   const possiblePaths = [
+    // 1. 应用内嵌路径
     path.join(process.env.APP_ROOT, ytDlpName),
     path.join(process.resourcesPath || '', ytDlpName),
     path.join(__dirname, '..', '..', ytDlpName),
+    // 2. macOS 系统安装路径
     '/usr/local/bin/' + ytDlpName,
     '/opt/homebrew/bin/' + ytDlpName,
     path.join(os.homedir(), '.local', 'bin', ytDlpName),
@@ -581,6 +583,8 @@ async function parseDouyinWithAPI(url: string): Promise<any> {
 function getChromiumPath(): string | null {
   // 1. 优先使用系统 Chrome
   const chromePaths = [
+    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+    path.join(os.homedir(), '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'),
     'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
     'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
     path.join(os.homedir(), 'AppData', 'Local', 'Google', 'Chrome', 'Application', 'chrome.exe'),
@@ -589,13 +593,25 @@ function getChromiumPath(): string | null {
     if (fs.existsSync(p)) return p
   }
 
-  // 2. 使用系统 Edge（Windows 10/11 预装）
+  // 2. 使用系统 Edge（Windows/macOS）
   const edgePaths = [
+    '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
+    path.join(os.homedir(), '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge'),
     'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
     'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',
     path.join(os.homedir(), 'AppData', 'Local', 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
   ]
   for (const p of edgePaths) {
+    if (fs.existsSync(p)) return p
+  }
+
+  // 3. 使用 Chromium（通过 Homebrew 安装）
+  const chromiumPaths = [
+    '/Applications/Chromium.app/Contents/MacOS/Chromium',
+    '/usr/local/bin/chromium',
+    '/opt/homebrew/bin/chromium',
+  ]
+  for (const p of chromiumPaths) {
     if (fs.existsSync(p)) return p
   }
 
@@ -606,6 +622,8 @@ function getChromiumPath(): string | null {
 function getAvailableBrowser(): string {
   // 优先检查 Chrome
   const chromePaths = [
+    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+    path.join(os.homedir(), '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'),
     'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
     'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
     path.join(os.homedir(), 'AppData', 'Local', 'Google', 'Chrome', 'Application', 'chrome.exe'),
@@ -616,6 +634,8 @@ function getAvailableBrowser(): string {
 
   // 然后检查 Edge
   const edgePaths = [
+    '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
+    path.join(os.homedir(), '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge'),
     'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
     'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',
     path.join(os.homedir(), 'AppData', 'Local', 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
@@ -677,7 +697,10 @@ async function parseDouyinWithPuppeteer(url: string): Promise<any> {
       // 拦截抖音视频详情 API
       if (resUrl.includes('/aweme/v1/web/aweme/detail/') ||
           resUrl.includes('/aweme/v1/aweme/detail/') ||
-          resUrl.includes('/aweme/v1/multi/aweme/detail/')) {
+          resUrl.includes('/aweme/v1/multi/aweme/detail/') ||
+          resUrl.includes('/aweme/v1/web/aweme/post/') ||
+          resUrl.includes('/api/douyin/v1/') ||
+          resUrl.includes('douyin.com/aweme/')) {
         try {
           const data = await response.json()
           videoData = data
@@ -685,13 +708,24 @@ async function parseDouyinWithPuppeteer(url: string): Promise<any> {
           // 忽略非 JSON 响应
         }
       }
+
+      // 拦截视频文件请求（获取直链）
+      if (resUrl.includes('.mp4') || resUrl.includes('.m3u8') || resUrl.includes('douyinvod.com')) {
+        try {
+          if (!videoData && response.headers()['content-type']?.includes('video')) {
+            videoData = { _directUrl: resUrl }
+          }
+        } catch (e) {
+          // ignore
+        }
+      }
     })
 
     // 访问页面（短链接会重定向）
-    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 })
+    await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 })
 
-    // 等待页面加载
-    await new Promise(resolve => setTimeout(resolve, 3000))
+    // 等待页面完全加载（含 JS 渲染）
+    await new Promise(resolve => setTimeout(resolve, 8000))
 
     // 滚动页面触发视频加载
     await page.evaluate(async () => {
@@ -702,7 +736,7 @@ async function parseDouyinWithPuppeteer(url: string): Promise<any> {
       if (videoContainer) {
         videoContainer.scrollIntoView({ behavior: 'instant', block: 'center' })
       }
-      await new Promise(r => setTimeout(r, 2000))
+      await new Promise(r => setTimeout(r, 3000))
       
       const playBtn = document.querySelector('.play-button') ||
                       document.querySelector('[data-e2e="play-button"]') ||
@@ -710,29 +744,50 @@ async function parseDouyinWithPuppeteer(url: string): Promise<any> {
                       document.querySelector('.player-play')
       if (playBtn) {
         ;(playBtn as HTMLElement).click()
-        await new Promise(r => setTimeout(r, 1000))
+        await new Promise(r => setTimeout(r, 2000))
       }
     })
 
-    // 尝试从页面 SSR 数据中提取
+    // 等待视频元素出现
+    try {
+      await page.waitForSelector('video', { timeout: 10000 })
+    } catch {
+      // 视频可能已通过其他方式加载
+    }
+
+      // 尝试从页面 SSR 数据中提取
     renderData = await page.evaluate(() => {
-      // 尝试从 window._SSR_HYDRATED_DATA 获取
+      // 1. 尝试从 window._SSR_HYDRATED_DATA 获取
       const ssrData = (window as any)._SSR_HYDRATED_DATA
       if (ssrData) {
         return { source: '_SSR_HYDRATED_DATA', data: ssrData }
       }
 
-      // 尝试从 window.__INITIAL_STATE__ 获取
+      // 2. 尝试从 window.__INITIAL_STATE__ 获取
       const initialState = (window as any).__INITIAL_STATE__
       if (initialState) {
         return { source: '__INITIAL_STATE__', data: initialState }
       }
 
-      // 尝试从 script 标签获取
+      // 3. 尝试从 RENDER_DATA script 标签获取（Douyin 最新版）
+      const renderScript = document.querySelector('script#RENDER_DATA')
+      if (renderScript) {
+        try {
+          const raw = renderScript.textContent || ''
+          if (raw) {
+            const decoded = decodeURIComponent(raw)
+            const data = JSON.parse(decoded)
+            return { source: 'RENDER_DATA', data }
+          }
+        } catch (e) {
+          // ignore
+        }
+      }
+
+      // 4. 尝试从 script 标签中正则匹配
       const scripts = document.querySelectorAll('script')
       for (const script of scripts) {
         const text = script.textContent || ''
-        // 匹配 SSR_HYDRATED_DATA
         let match = text.match(/window\._SSR_HYDRATED_DATA\s*=\s*({[\s\S]+?});?\s*$/m)
         if (match) {
           try {
@@ -741,7 +796,6 @@ async function parseDouyinWithPuppeteer(url: string): Promise<any> {
             // ignore
           }
         }
-        // 匹配 __INITIAL_STATE__
         match = text.match(/window\.__INITIAL_STATE__\s*=\s*({[\s\S]+?});?\s*$/m)
         if (match) {
           try {
@@ -885,11 +939,32 @@ async function parseDouyinWithPuppeteer(url: string): Promise<any> {
                          document.querySelector('.author') ||
                          document.querySelector('[data-e2e="user-name"]')
 
-        // 尝试获取视频 src
+        // 尝试获取视频 src（多种方法）
         let videoSrc: string | undefined = videoEl?.src
-        if (!videoSrc) {
+        if (!videoSrc || videoSrc.startsWith('blob:')) {
           const sourceEl = videoEl?.querySelector('source')
-          videoSrc = sourceEl?.src
+          videoSrc = sourceEl?.src || videoSrc
+        }
+
+        // 如果 video.src 是 blob，尝试从元素属性获取
+        if (!videoSrc || videoSrc.startsWith('blob:')) {
+          const attrs = videoEl?.getAttributeNames() || []
+          for (const attr of attrs) {
+            const val = videoEl?.getAttribute(attr)
+            if (val && (val.includes('.mp4') || val.includes('douyinvod.com') || val.includes('.m3u8'))) {
+              videoSrc = val
+              break
+            }
+          }
+        }
+
+        // 尝试从页面中查找视频 URL（从 script 数据或 meta 中）
+        if (!videoSrc) {
+          const html = document.documentElement.innerHTML
+          const urlMatch = html.match(/https?:\/\/[^"'\s]+\.(mp4|m3u8)[^"'\s]*/)
+          if (urlMatch) {
+            videoSrc = urlMatch[0]
+          }
         }
 
         return {
@@ -1877,12 +1952,14 @@ ipcMain.handle('ytdlp:parse', async (_event, ...args) => {
   const cookiesFile = args[1] as string | undefined
   // 如果是抖音链接，优先使用 API 解析
   if (isDouyinUrl(url)) {
+    const lastError: any = null
     try {
       return await parseDouyinWithAPI(url)
     } catch (e: any) {
       try {
         return await parseDouyinWithPuppeteer(url)
       } catch (e2: any) {
+        // API 和 Puppeteer 都失败，继续走 yt-dlp
       }
     }
   }
@@ -1944,8 +2021,18 @@ ipcMain.handle('ytdlp:parse', async (_event, ...args) => {
       }
     }
 
-    // B站也需要 cookies 避免 412 错误
+    // B站需要 cookies 避免 412 错误
     if (isBilibili) {
+      if (cookiesFile && fs.existsSync(cookiesFile)) {
+        args.push('--cookies', cookiesFile)
+      } else {
+        const browser = getAvailableBrowser()
+        if (browser) args.push('--cookies-from-browser', browser)
+      }
+    }
+
+    // 抖音也需要 cookies
+    if (isDouyinUrl(url)) {
       if (cookiesFile && fs.existsSync(cookiesFile)) {
         args.push('--cookies', cookiesFile)
       } else {
@@ -2189,15 +2276,31 @@ ipcMain.handle('ytdlp:parse', async (_event, ...args) => {
 })
 
 // 直接下载文件（用于抖音等直接URL）
-async function downloadDirectFile(url: string, outputPath: string, taskId: string): Promise<void> {
+async function downloadDirectFile(url: string, outputPath: string, taskId: string, cookiesFile?: string): Promise<void> {
   return new Promise(async (resolve, reject) => {
     try {
-      const response = await fetch(url, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Referer': 'https://www.douyin.com/'
+      const headers: Record<string, string> = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Referer': 'https://www.douyin.com/'
+      }
+
+      // 如果有 cookies 文件，添加到请求头
+      if (cookiesFile && fs.existsSync(cookiesFile)) {
+        const cookies = fs.readFileSync(cookiesFile, 'utf-8')
+        // Netscape cookies 文件中每行格式: domain ... value
+        const lines = cookies.split('\n').filter(l => l && !l.startsWith('#') && !l.startsWith('http'))
+        const cookieStr = lines.map(l => {
+          const parts = l.trim().split('\t')
+          return parts.length >= 7 ? `${parts[5]}=${parts[6]}` : ''
+        }).filter(Boolean).join('; ')
+        if (cookieStr) {
+          headers['Cookie'] = cookieStr
         }
-      })
+      }
+
+      const https = await import('node:https')
+      const agent = new https.Agent({ rejectUnauthorized: false })
+      const response = await fetch(url, { headers, agent })
 
       if (!response.ok) {
         reject(new Error(`HTTP ${response.status}: ${response.statusText}`))
@@ -2312,7 +2415,7 @@ ipcMain.handle('ytdlp:download', async (_event, options: {
       const outputPath = path.join(outputDir, filename)
 
       try {
-        await downloadDirectFile(options.directUrl, outputPath, options.taskId)
+        await downloadDirectFile(options.directUrl, outputPath, options.taskId, options.cookiesFile)
         resolve({ filePath: outputPath })
         return
       } catch (e: any) {
@@ -2354,6 +2457,7 @@ ipcMain.handle('ytdlp:download', async (_event, options: {
       '--newline',
       '--no-playlist',
       '--encoding', 'utf-8',
+      '--no-check-certificates',
     ]
     
     // 纯字幕下载模式不需要 -f 参数
@@ -2412,8 +2516,18 @@ ipcMain.handle('ytdlp:download', async (_event, options: {
       }
     }
 
-    // B站也需要 cookies 避免 412 错误
+    // B站需要 cookies 避免 412 错误
     if (isBilibili) {
+      if (options.cookiesFile && fs.existsSync(options.cookiesFile)) {
+        args.push('--cookies', options.cookiesFile)
+      } else {
+        const browser = getAvailableBrowser()
+        if (browser) args.push('--cookies-from-browser', browser)
+      }
+    }
+
+    // 抖音也需要 cookies
+    if (options.directUrl || options.url.includes('douyin.com')) {
       if (options.cookiesFile && fs.existsSync(options.cookiesFile)) {
         args.push('--cookies', options.cookiesFile)
       } else {
