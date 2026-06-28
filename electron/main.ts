@@ -20,10 +20,16 @@ let win: BrowserWindow | null
 
 // 获取 yt-dlp 路径
 function getYtDlpPath(): string {
+  const isWin = process.platform === 'win32'
+  const ytDlpName = isWin ? 'yt-dlp.exe' : 'yt-dlp'
+
   const possiblePaths = [
-    path.join(process.env.APP_ROOT, 'yt-dlp.exe'),
-    path.join(process.resourcesPath || '', 'yt-dlp.exe'),
-    path.join(__dirname, '..', '..', 'yt-dlp.exe'),
+    path.join(process.env.APP_ROOT, ytDlpName),
+    path.join(process.resourcesPath || '', ytDlpName),
+    path.join(__dirname, '..', '..', ytDlpName),
+    '/usr/local/bin/' + ytDlpName,
+    '/opt/homebrew/bin/' + ytDlpName,
+    path.join(os.homedir(), '.local', 'bin', ytDlpName),
   ]
   
   for (const p of possiblePaths) {
@@ -31,7 +37,7 @@ function getYtDlpPath(): string {
       return p
     }
   }
-  return 'yt-dlp.exe'
+  return ytDlpName
 }
 
 // 获取 ffmpeg 路径（跨平台）
@@ -48,7 +54,11 @@ function getFfmpegPath(): string {
     path.join(__dirname, '..', '..', ffmpegName),
     // 2. 当前目录
     path.join(process.cwd(), ffmpegName),
-    // 3. 系统 PATH 中的 ffmpeg
+    // 3. 系统安装路径
+    '/usr/local/bin/' + ffmpegName,
+    '/opt/homebrew/bin/' + ffmpegName,
+    path.join(os.homedir(), '.local', 'bin', ffmpegName),
+    // 4. 系统 PATH 中的 ffmpeg
     ffmpegName
   ]
   
@@ -401,7 +411,7 @@ ipcMain.handle('app:getDefaultDownloadDir', () => {
 
 // 打开下载文件夹
 ipcMain.handle('shell:openPath', async (_, filePath: string) => {
-  await shell.openPath(filePath)
+  shell.showItemInFolder(filePath)
 })
 
 // 打开外部链接
