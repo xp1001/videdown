@@ -186,27 +186,6 @@ videdown/
 4. 推送到分支 (`git push origin feature/AmazingFeature`)
 5. 打开一个 Pull Request
 
-## 💖 支持作者
-
-如果这个项目对你有帮助，可以考虑请作者喝杯咖啡 ☕
-
-<div align="center">
-  <table>
-    <tr>
-      <td align="center">
-        <img src="src/assets/wepay.png" alt="微信支付" width="200">
-        <br>
-        <sub>微信支付</sub>
-      </td>
-      <td align="center">
-        <img src="src/assets/alipay.png" alt="支付宝" width="200">
-        <br>
-        <sub>支付宝</sub>
-      </td>
-    </tr>
-  </table>
-</div>
-
 ## 📄 开源协议
 
 本项目基于 [MIT](LICENSE) 协议开源。
