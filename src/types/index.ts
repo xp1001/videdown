@@ -7,7 +7,26 @@ export interface VideoFormat {
   height?: number
   fps?: number
   hasAudio?: boolean
-  url?: string  // 直接下载链接（用于抖音等平台）
+  url?: string
+}
+
+export interface AudioFormat {
+  formatId: string
+  quality: string
+  ext: string
+  filesize?: number
+  url?: string
+}
+
+export interface AudioTrack {
+  id: string
+  name: string
+  language: string
+}
+
+export interface SubtitleInfo {
+  language: string
+  name: string
 }
 
 export interface VideoInfo {
@@ -19,6 +38,10 @@ export interface VideoInfo {
   uploader?: string
   webpageUrl: string
   formats: VideoFormat[]
+  isYoutube?: boolean
+  audioFormats?: AudioFormat[]
+  audioTracks?: AudioTrack[]
+  subtitles?: SubtitleInfo[]
 }
 
 export interface DownloadTask {
@@ -27,7 +50,7 @@ export interface DownloadTask {
   videoInfo: VideoInfo
   selectedFormat: VideoFormat
   outputDir: string
-  status: 'pending' | 'downloading' | 'merging' | 'completed' | 'error'
+  status: 'pending' | 'downloading' | 'merging' | 'completed' | 'error' | 'paused'
   progress: number
   downloadedSize?: string
   totalSize?: string
