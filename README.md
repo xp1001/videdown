@@ -2,12 +2,14 @@
   <h1>Videdown</h1>
 </div>
 
+> 此仓库是 [cshuangyy/videdown](https://github.com/cshuangyy/videdown) 的 fork，主要增加 macOS 适配、抖音解析优化、类型修复等。详见 [提交历史](https://github.com/xp1001/videdown/commits/main/)。
+
 Videdown 是一款现代化的开源视频下载工具，让你可以从抖音 小红书 B站 YT Instagram等网站下载无水印高清视频。基于 Electron 构建，使用 yt-dlp 作为下载引擎，Videdown 提供了简洁直观的界面和强大的功能，满足你的所有下载需求。
 
   <p>
-    <a href="https://github.com/cshuangyy/videdown/stargazers"><img src="src/assets/screen.png" alt="Videdown Screenshot" width="98%"></a>
-    <a href="https://github.com/cshuangyy/videdown/releases"><img src="https://img.shields.io/github/downloads/cshuangyy/videdown/total?color=369eff&labelColor=black&logo=github&label=Downloads" /></a>
-    <a href="https://github.com/cshuangyy/videdown/releases/latest"><img src="https://img.shields.io/github/v/release/cshuangyy/videdown?color=369eff&labelColor=black&logo=github&label=Latest%20Release" /></a>
+    <a href="https://github.com/xp1001/videdown/stargazers"><img src="src/assets/screen.png" alt="Videdown Screenshot" width="98%"></a>
+    <a href="https://github.com/xp1001/videdown/releases"><img src="https://img.shields.io/github/downloads/xp1001/videdown/total?color=369eff&labelColor=black&logo=github&label=Downloads" /></a>
+    <a href="https://github.com/xp1001/videdown/releases/latest"><img src="https://img.shields.io/github/v/release/xp1001/videdown?color=369eff&labelColor=black&logo=github&label=Latest%20Release" /></a>
     <br />
     <br />
   </p>
@@ -58,8 +60,10 @@ Videdown 通过 yt-dlp 支持 1000+ 个视频和音频平台。主要支持：
 
 ### 下载安装
 
-1. 访问 [Releases](https://github.com/cshuangyy/videdown/releases) 页面
-2. 下载最新版本的安装程序 `Videdown Setup x.x.x.exe`
+1. 访问 [Releases](https://github.com/xp1001/videdown/releases) 页面
+2. 下载对应系统的安装包：
+   - **Windows**: `Videdown Setup x.x.x.exe`
+   - **macOS**: `Videdown-x.x.x.dmg`
 3. 运行安装程序，按提示完成安装
 4. 安装完成后即可使用
 
@@ -68,7 +72,7 @@ Videdown 通过 yt-dlp 支持 1000+ 个视频和音频平台。主要支持：
 #### 1. 克隆仓库
 
 ```bash
-git clone https://github.com/cshuangyy/videdown.git
+git clone https://github.com/xp1001/videdown.git
 cd videdown
 ```
 
@@ -90,13 +94,21 @@ Remove-Item -Path "ffmpeg.zip" -Recurse -Force
 Remove-Item -Path "ffmpeg-master-latest-win64-gpl" -Recurse -Force
 ```
 
-**macOS/Linux 用户：**
+**macOS 用户：**
 
 ```bash
-# 使用包管理器安装 yt-dlp 和 ffmpeg
-# macOS (Homebrew)
-brew install yt-dlp ffmpeg
+# 使用 Homebrew 安装依赖
+brew install yt-dlp ffmpeg node
 
+# 安装 pnpm
+npm install -g pnpm
+```
+
+> ⚠️ **注意**：macOS 版需要 Google Chrome 浏览器（Puppeteer 用于抖音/快手解析），请确保已安装。
+
+**Linux 用户：**
+
+```bash
 # Ubuntu/Debian
 sudo apt update
 sudo apt install yt-dlp ffmpeg
